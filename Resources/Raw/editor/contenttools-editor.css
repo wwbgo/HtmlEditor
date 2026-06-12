@@ -1,0 +1,48 @@
+html,
+body {
+  min-height: 100%;
+  margin: 0;
+  color: #24323a;
+  font-family: "Segoe UI", Arial, sans-serif;
+}
+
+body {
+  overflow: auto;
+}
+
+#document-shell {
+  min-height: 100vh;
+  margin: 0;
+  padding: 0;
+}
+
+#document-body {
+  min-height: 100vh;
+  outline: 1px dashed transparent;
+  cursor: text;
+}
+
+#document-body:focus,
+#document-body:hover,
+#document-body[data-editor-active="true"]:hover {
+  outline-color: #7fb3b8;
+}
+
+#document-body img,
+#document-body video,
+#document-body iframe {
+  max-width: 100%;
+}
+
+.ct-widget {
+  font-family: "Segoe UI", Arial, sans-serif;
+}
+
+.ct-ignition,
+.ct-widget.ct-toolbox {
+  display: none !important;
+}
+
+.ct-widget.ct-inspector {
+  background: rgba(38, 50, 56, 0.96);
+}

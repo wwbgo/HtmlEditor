@@ -1,0 +1,10 @@
+bin/
+obj/
+node_modules/
+artifacts/
+.vs/
+*.user
+*.suo
+Resources/Raw/editor/grapesjs/grapes.min.*
+Resources/Raw/editor/contenttools/content-tools.min.*
+Resources/Raw/editor/contenttools/images/

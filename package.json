@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "ContentTools": "^1.6.16",
+    "grapesjs": "^0.23.2"
+  }
+}
