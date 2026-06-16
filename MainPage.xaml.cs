@@ -252,6 +252,11 @@ public partial class MainPage : ContentPage
         await SaveAsAsync();
     }
 
+    private async void OnRestoreBackupClicked(object? sender, EventArgs e)
+    {
+        await RestoreBackupAsync();
+    }
+
     private async void OnReloadClicked(object? sender, EventArgs e)
     {
         if (string.IsNullOrWhiteSpace(_currentFilePath))
@@ -474,6 +479,62 @@ public partial class MainPage : ContentPage
         }
     }
 
+    private async Task RestoreBackupAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_currentFilePath))
+        {
+            SetStatus("请先打开要还原的文件");
+            return;
+        }
+
+        var backups = _documentService.GetBackups(_currentFilePath);
+        if (backups.Count == 0)
+        {
+            await ShowInfoAsync("没有可还原的备份", "当前文件还没有保存过的备份。");
+            return;
+        }
+
+        var choices = backups
+            .Select((backup, index) => FormatBackupChoice(backup, index))
+            .ToArray();
+
+        var selected = await DisplayActionSheetAsync("选择要还原的备份", "取消", null, choices);
+        if (string.IsNullOrWhiteSpace(selected) || selected == "取消")
+        {
+            return;
+        }
+
+        var selectedIndex = Array.IndexOf(choices, selected);
+        if (selectedIndex < 0)
+        {
+            return;
+        }
+
+        var selectedBackup = backups[selectedIndex];
+        var confirmed = await DisplayAlertAsync(
+            "确认还原",
+            $"将使用所选备份覆盖当前文件：{Path.GetFileName(_currentFilePath)}",
+            "还原",
+            "取消");
+        if (!confirmed)
+        {
+            return;
+        }
+
+        try
+        {
+            await _documentService.RestoreBackupAsync(_currentFilePath, selectedBackup.FullPath);
+            await LoadFileAsync(_currentFilePath);
+            var gitMessage = await TryCommitAsync(_currentFilePath);
+            var message = JoinStatus($"已还原 {Path.GetFileName(_currentFilePath)}", gitMessage);
+            await ShowInfoAsync("还原成功", message);
+        }
+        catch (Exception ex)
+        {
+            await ShowErrorAsync("还原失败", ex.Message);
+        }
+    }
+
     private async Task<string> GetEditorHtmlAsync()
     {
         if (!_editorReady)
@@ -523,6 +584,28 @@ public partial class MainPage : ContentPage
         return string.IsNullOrWhiteSpace(secondary)
             ? primary
             : $"{primary}；{secondary}";
+    }
+
+    private static string FormatBackupChoice(HtmlBackupInfo backup, int index)
+    {
+        return $"{index + 1}. {backup.CreatedAt:yyyy-MM-dd HH:mm:ss}  {FormatFileSize(backup.Size)}";
+    }
+
+    private static string FormatFileSize(long size)
+    {
+        if (size < 1024)
+        {
+            return $"{size} B";
+        }
+
+        var kilobytes = size / 1024d;
+        if (kilobytes < 1024)
+        {
+            return $"{kilobytes:0.#} KB";
+        }
+
+        var megabytes = kilobytes / 1024d;
+        return $"{megabytes:0.#} MB";
     }
 
     private static string DecodeJavaScriptString(string? value)

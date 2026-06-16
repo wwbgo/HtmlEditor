@@ -69,6 +69,7 @@
             <MenuFlyoutSeparator />
             <MenuFlyoutItem Text="保存" Clicked="OnSaveClicked" />
             <MenuFlyoutItem Text="另存为" Clicked="OnSaveAsClicked" />
+            <MenuFlyoutItem Text="还原备份" Clicked="OnRestoreBackupClicked" />
             <MenuFlyoutItem Text="重新加载" Clicked="OnReloadClicked" />
         </MenuBarItem>
         <MenuBarItem Text="编辑">
@@ -106,14 +107,13 @@
                                 Clicked="OnInitGitClicked" />
                         <Picker Grid.Column="1"
                                 x:Name="EditorModePicker"
-                                Title="编辑器"
                                 SelectedIndex="1"
-                                HeightRequest="32"
-                                MinimumHeightRequest="0"
+                                HeightRequest="34"
+                                MinimumHeightRequest="34"
+                                MinimumWidthRequest="132"
                                 FontSize="12"
                                 BackgroundColor="#FFFFFF"
                                 TextColor="#173B3F"
-                                TitleColor="#667085"
                                 VerticalOptions="Center"
                                 SelectedIndexChanged="OnEditorModeChanged">
                             <Picker.Items>
@@ -185,12 +185,7 @@
                                        HorizontalTextAlignment="Center"
                                        VerticalTextAlignment="Center"
                                        HorizontalOptions="Center"
-                                       VerticalOptions="Center">
-                                    <Label.GestureRecognizers>
-                                        <TapGestureRecognizer CommandParameter="{Binding .}"
-                                                              Tapped="OnToggleNodeClicked" />
-                                    </Label.GestureRecognizers>
-                                </Label>
+                                       VerticalOptions="Center" />
                                 <Label Grid.Column="2"
                                        Text="{Binding IconGlyph}"
                                        FontFamily="Segoe MDL2 Assets"
@@ -218,7 +213,7 @@
                   RowDefinitions="Auto,Auto,*"
                   BackgroundColor="#E9EEF3">
                 <Grid Padding="10,8"
-                      ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,*"
+                      ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,*"
                       ColumnSpacing="8"
                       BackgroundColor="#FAFBFC">
                     <Button Text="撤销"
@@ -246,7 +241,12 @@
                             x:Name="SaveAsButton"
                             Style="{StaticResource CommandButton}"
                             Clicked="OnSaveAsClicked" />
-                    <HorizontalStackLayout Grid.Column="5"
+                    <Button Grid.Column="5"
+                            Text="还原备份"
+                            x:Name="RestoreBackupButton"
+                            Style="{StaticResource CommandButton}"
+                            Clicked="OnRestoreBackupClicked" />
+                    <HorizontalStackLayout Grid.Column="6"
                                            Spacing="0"
                                            VerticalOptions="Center">
                         <CheckBox x:Name="BackupCheckBox"
@@ -261,12 +261,12 @@
                                VerticalTextAlignment="Center"
                                TextColor="#333942" />
                     </HorizontalStackLayout>
-                    <Button Grid.Column="6"
+                    <Button Grid.Column="7"
                             Text="重新加载"
                             x:Name="ReloadButton"
                             Style="{StaticResource CommandButton}"
                             Clicked="OnReloadClicked" />
-                    <Label Grid.Column="7"
+                    <Label Grid.Column="8"
                            x:Name="CurrentFileLabel"
                            Text="未打开文件"
                            FontSize="12"

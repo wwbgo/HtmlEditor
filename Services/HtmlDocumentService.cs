@@ -1,9 +1,12 @@
+using System.Globalization;
 using System.Text;
 
 namespace HtmlEditor.Services;
 
 public sealed class HtmlDocumentService
 {
+    private const string BackupDirectoryName = ".html-editor-backups";
+
     public async Task<string> ReadAsync(string path)
     {
         return await File.ReadAllTextAsync(path, Encoding.UTF8);
@@ -13,13 +16,64 @@ public sealed class HtmlDocumentService
     {
         if (createBackup && File.Exists(path))
         {
-            var backupDirectory = Path.Combine(Path.GetDirectoryName(path)!, ".html-editor-backups");
-            Directory.CreateDirectory(backupDirectory);
-            var backupName = $"{Path.GetFileName(path)}.{DateTime.Now:yyyyMMddHHmmss}.bak";
-            File.Copy(path, Path.Combine(backupDirectory, backupName), overwrite: true);
+            await CreateBackupAsync(path);
         }
 
         await File.WriteAllTextAsync(path, content, Encoding.UTF8);
+    }
+
+    public IReadOnlyList<HtmlBackupInfo> GetBackups(string path)
+    {
+        var backupDirectory = GetBackupDirectory(path);
+        if (!Directory.Exists(backupDirectory))
+        {
+            return [];
+        }
+
+        var fileName = Path.GetFileName(path);
+        var prefix = $"{fileName}.";
+
+        try
+        {
+            return Directory.EnumerateFiles(backupDirectory, $"{fileName}.*.bak")
+                .Where(file => IsBackupForFile(file, prefix))
+                .Select(file => CreateBackupInfo(file, prefix))
+                .Where(backup => backup is not null)
+                .Select(backup => backup!)
+                .OrderByDescending(backup => backup.CreatedAt)
+                .ThenByDescending(backup => backup.FullPath, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+        catch (IOException)
+        {
+            return [];
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return [];
+        }
+    }
+
+    public async Task RestoreBackupAsync(string path, string backupPath)
+    {
+        if (!File.Exists(backupPath))
+        {
+            throw new FileNotFoundException("备份文件不存在", backupPath);
+        }
+
+        EnsureBackupBelongsToFile(path, backupPath);
+
+        var directory = Path.GetDirectoryName(path);
+        if (string.IsNullOrWhiteSpace(directory))
+        {
+            throw new InvalidOperationException("目标文件路径无效");
+        }
+
+        Directory.CreateDirectory(directory);
+
+        await using var input = File.OpenRead(backupPath);
+        await using var output = File.Create(path);
+        await input.CopyToAsync(output);
     }
 
     public async Task<string> CreateNewHtmlAsync(string directory)
@@ -55,4 +109,108 @@ public sealed class HtmlDocumentService
         await File.WriteAllTextAsync(path, content, Encoding.UTF8);
         return path;
     }
+
+    private async Task<HtmlBackupInfo> CreateBackupAsync(string path, string? content = null)
+    {
+        var backupDirectory = GetBackupDirectory(path);
+        Directory.CreateDirectory(backupDirectory);
+
+        var backupPath = GetUniqueBackupPath(path, backupDirectory);
+        if (content is null)
+        {
+            File.Copy(path, backupPath);
+        }
+        else
+        {
+            await File.WriteAllTextAsync(backupPath, content, Encoding.UTF8);
+        }
+
+        return CreateBackupInfo(backupPath, $"{Path.GetFileName(path)}.")!;
+    }
+
+    private static string GetBackupDirectory(string path)
+    {
+        var directory = Path.GetDirectoryName(path);
+        if (string.IsNullOrWhiteSpace(directory))
+        {
+            throw new InvalidOperationException("目标文件路径无效");
+        }
+
+        return Path.Combine(directory, BackupDirectoryName);
+    }
+
+    private static string GetUniqueBackupPath(string path, string backupDirectory)
+    {
+        var timestamp = DateTime.Now.ToString("yyyyMMddHHmmss", CultureInfo.InvariantCulture);
+        var fileName = Path.GetFileName(path);
+        var backupPath = Path.Combine(backupDirectory, $"{fileName}.{timestamp}.bak");
+
+        for (var index = 1; File.Exists(backupPath); index++)
+        {
+            backupPath = Path.Combine(backupDirectory, $"{fileName}.{timestamp}-{index}.bak");
+        }
+
+        return backupPath;
+    }
+
+    private static bool IsBackupForFile(string backupPath, string prefix)
+    {
+        var backupFileName = Path.GetFileName(backupPath);
+        return backupFileName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+            && backupFileName.EndsWith(".bak", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static HtmlBackupInfo? CreateBackupInfo(string backupPath, string prefix)
+    {
+        try
+        {
+            var info = new FileInfo(backupPath);
+            var createdAt = TryParseBackupTimestamp(Path.GetFileName(backupPath), prefix) ?? info.LastWriteTime;
+            return new HtmlBackupInfo(backupPath, createdAt, info.Length);
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    private static DateTime? TryParseBackupTimestamp(string backupFileName, string prefix)
+    {
+        const string suffix = ".bak";
+        if (!backupFileName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+            || !backupFileName.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        var timestamp = backupFileName[prefix.Length..^suffix.Length].Split('-', 2)[0];
+        if (DateTime.TryParseExact(timestamp, "yyyyMMddHHmmss", CultureInfo.InvariantCulture, DateTimeStyles.None, out var createdAt))
+        {
+            return createdAt;
+        }
+
+        return null;
+    }
+
+    private static void EnsureBackupBelongsToFile(string path, string backupPath)
+    {
+        var backupDirectory = Path.GetFullPath(GetBackupDirectory(path)) + Path.DirectorySeparatorChar;
+        var selectedBackup = Path.GetFullPath(backupPath);
+        if (!selectedBackup.StartsWith(backupDirectory, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("备份文件不属于当前文件");
+        }
+
+        var prefix = $"{Path.GetFileName(path)}.";
+        if (!IsBackupForFile(selectedBackup, prefix))
+        {
+            throw new InvalidOperationException("备份文件不属于当前文件");
+        }
+    }
 }
+
+public sealed record HtmlBackupInfo(string FullPath, DateTime CreatedAt, long Size);

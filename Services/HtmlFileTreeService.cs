@@ -28,6 +28,7 @@ public sealed class HtmlFileTreeService
             DisplayName = parent is null ? path : Path.GetFileName(path),
             FullPath = path,
             IsDirectory = true,
+            IsExpanded = parent is null,
             Depth = depth,
             Parent = parent
         };
