@@ -388,7 +388,8 @@ public partial class MainPage : ContentPage
     private async Task LoadHtmlIntoEditorAsync(string html)
     {
         var baseHref = await GetDocumentBaseHrefAsync();
-        var script = $"window.editorHost.loadHtmlBase64('{ToBase64(html)}','{ToBase64(baseHref)}')";
+        var siteRootHref = await GetSiteRootHrefAsync();
+        var script = $"window.editorHost.loadHtmlBase64('{ToBase64(html)}','{ToBase64(baseHref)}','{ToBase64(siteRootHref)}')";
         await EditorWebView.EvaluateJavaScriptAsync(script);
     }
 
@@ -417,6 +418,82 @@ public partial class MainPage : ContentPage
 
         await Task.CompletedTask;
         return new Uri(directory + Path.DirectorySeparatorChar).AbsoluteUri;
+    }
+
+    private async Task<string> GetSiteRootHrefAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_currentFilePath))
+        {
+            return string.Empty;
+        }
+
+        var currentDirectory = GetCurrentFileDirectory();
+        var workspaceDirectory = GetWorkspaceDirectoryForCurrentFile();
+        var rootDirectory = FindNearestStaticSiteRoot(currentDirectory, workspaceDirectory)
+            ?? workspaceDirectory
+            ?? currentDirectory;
+
+        await Task.CompletedTask;
+        return string.IsNullOrWhiteSpace(rootDirectory)
+            ? string.Empty
+            : new Uri(rootDirectory + Path.DirectorySeparatorChar).AbsoluteUri;
+    }
+
+    private string? GetWorkspaceDirectoryForCurrentFile()
+    {
+        if (string.IsNullOrWhiteSpace(_currentFilePath) || string.IsNullOrWhiteSpace(_workspacePath))
+        {
+            return null;
+        }
+
+        var workspaceDirectory = Path.GetFullPath(_workspacePath);
+        var workspacePrefix = workspaceDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            + Path.DirectorySeparatorChar;
+        var currentFile = Path.GetFullPath(_currentFilePath);
+
+        return currentFile.StartsWith(workspacePrefix, StringComparison.OrdinalIgnoreCase)
+            ? workspaceDirectory
+            : null;
+    }
+
+    private static string? FindNearestStaticSiteRoot(string startDirectory, string? stopDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(startDirectory))
+        {
+            return null;
+        }
+
+        var current = new DirectoryInfo(Path.GetFullPath(startDirectory));
+        var stop = string.IsNullOrWhiteSpace(stopDirectory)
+            ? null
+            : Path.GetFullPath(stopDirectory);
+
+        while (current is not null)
+        {
+            if (Directory.Exists(Path.Combine(current.FullName, "assets")))
+            {
+                return current.FullName;
+            }
+
+            if (stop is not null && string.Equals(current.FullName, stop, StringComparison.OrdinalIgnoreCase))
+            {
+                break;
+            }
+
+            current = current.Parent;
+        }
+
+        return null;
+    }
+
+    private string GetCurrentFileDirectory()
+    {
+        if (string.IsNullOrWhiteSpace(_currentFilePath))
+        {
+            return string.Empty;
+        }
+
+        return Path.GetDirectoryName(_currentFilePath) ?? string.Empty;
     }
 
     private async Task SaveCurrentFileAsync()

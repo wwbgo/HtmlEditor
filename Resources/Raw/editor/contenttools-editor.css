@@ -34,6 +34,71 @@ body {
   max-width: 100%;
 }
 
+/* Fallback for Tailwind-powered static pages while external scripts are not run in the editor preview. */
+#document-body .hidden {
+  display: none !important;
+}
+
+#document-body .flex {
+  display: flex;
+}
+
+#document-body .inline-flex {
+  display: inline-flex;
+}
+
+#document-body .grid {
+  display: grid;
+}
+
+#document-body .items-center {
+  align-items: center;
+}
+
+#document-body .justify-between {
+  justify-content: space-between;
+}
+
+#document-body .gap-1 {
+  gap: 0.25rem;
+}
+
+#document-body .gap-3 {
+  gap: 0.75rem;
+}
+
+#document-body .gap-6 {
+  gap: 1.5rem;
+}
+
+#document-body .gap-8 {
+  gap: 2rem;
+}
+
+#document-body .min-h-\[78px\] {
+  min-height: 78px;
+}
+
+@media (min-width: 640px) {
+  #document-body .sm\:inline-flex {
+    display: inline-flex !important;
+  }
+}
+
+@media (min-width: 1024px) {
+  #document-body .lg\:block {
+    display: block !important;
+  }
+
+  #document-body .lg\:flex {
+    display: flex !important;
+  }
+
+  #document-body .lg\:hidden {
+    display: none !important;
+  }
+}
+
 .ct-widget {
   font-family: "Segoe UI", Arial, sans-serif;
 }
