@@ -14,12 +14,16 @@ public sealed class HtmlDocumentService
 
     public async Task SaveAsync(string path, string content, bool createBackup)
     {
+        var newline = File.Exists(path)
+            ? await DetectNewLineAsync(path)
+            : Environment.NewLine;
+
         if (createBackup && File.Exists(path))
         {
             await CreateBackupAsync(path);
         }
 
-        await File.WriteAllTextAsync(path, content, Encoding.UTF8);
+        await File.WriteAllTextAsync(path, NormalizeNewLines(content, newline), Encoding.UTF8);
     }
 
     public IReadOnlyList<HtmlBackupInfo> GetBackups(string path)
@@ -122,10 +126,79 @@ public sealed class HtmlDocumentService
         }
         else
         {
-            await File.WriteAllTextAsync(backupPath, content, Encoding.UTF8);
+            await File.WriteAllTextAsync(backupPath, NormalizeNewLines(content, Environment.NewLine), Encoding.UTF8);
         }
 
         return CreateBackupInfo(backupPath, $"{Path.GetFileName(path)}.")!;
+    }
+
+    private static async Task<string> DetectNewLineAsync(string path)
+    {
+        var content = await File.ReadAllTextAsync(path, Encoding.UTF8);
+        var crlfCount = CountOccurrences(content, "\r\n");
+        var lfCount = CountLineFeedOnly(content);
+        var crCount = CountCarriageReturnOnly(content);
+
+        if (crlfCount == 0 && lfCount == 0 && crCount == 0)
+        {
+            return Environment.NewLine;
+        }
+
+        if (crlfCount >= lfCount && crlfCount >= crCount)
+        {
+            return "\r\n";
+        }
+
+        return lfCount >= crCount ? "\n" : "\r";
+    }
+
+    private static string NormalizeNewLines(string content, string newline)
+    {
+        return content
+            .Replace("\r\n", "\n")
+            .Replace('\r', '\n')
+            .Replace("\n", newline);
+    }
+
+    private static int CountOccurrences(string content, string value)
+    {
+        var count = 0;
+        var index = 0;
+        while ((index = content.IndexOf(value, index, StringComparison.Ordinal)) >= 0)
+        {
+            count++;
+            index += value.Length;
+        }
+
+        return count;
+    }
+
+    private static int CountLineFeedOnly(string content)
+    {
+        var count = 0;
+        for (var index = 0; index < content.Length; index++)
+        {
+            if (content[index] == '\n' && (index == 0 || content[index - 1] != '\r'))
+            {
+                count++;
+            }
+        }
+
+        return count;
+    }
+
+    private static int CountCarriageReturnOnly(string content)
+    {
+        var count = 0;
+        for (var index = 0; index < content.Length; index++)
+        {
+            if (content[index] == '\r' && (index + 1 >= content.Length || content[index + 1] != '\n'))
+            {
+                count++;
+            }
+        }
+
+        return count;
     }
 
     private static string GetBackupDirectory(string path)
