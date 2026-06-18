@@ -1,0 +1,137 @@
+name: Package Windows Installer
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  DOTNET_VERSION: "10.0.x"
+  CONFIGURATION: Release
+  RUNTIME: win-x64
+  PACKAGE_NAME: htmleditor-windows-installer
+
+jobs:
+  package:
+    name: Build and publish installer
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Restore npm assets
+        run: npm ci
+
+      - name: Install .NET MAUI workload
+        run: dotnet workload install maui
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: Resolve package version
+        id: version
+        shell: pwsh
+        run: |
+          [xml]$project = Get-Content -LiteralPath HtmlEditor.csproj
+          $baseVersion = ($project.Project.PropertyGroup | Where-Object { $_.ApplicationDisplayVersion } | Select-Object -First 1).ApplicationDisplayVersion
+          if ([string]::IsNullOrWhiteSpace($baseVersion)) {
+            $baseVersion = "1.0.0"
+          }
+          if ($env:GITHUB_REF_TYPE -eq "tag" -and $env:GITHUB_REF_NAME -match '^v(.+)$') {
+            $baseVersion = $Matches[1]
+          }
+
+          $parts = @($baseVersion -split '[^0-9]+' | Where-Object { $_ })
+          if ($parts.Count -eq 0) {
+            $parts = @("1", "0", "0")
+          }
+
+          $major = [int]$parts[0]
+          $minor = if ($parts.Count -ge 2) { [int]$parts[1] } else { 0 }
+          $patch = if ($parts.Count -ge 3) { [int]$parts[2] } else { 0 }
+          $buildNumber = [int]$env:GITHUB_RUN_NUMBER
+          $version = "$major.$minor.$patch.$buildNumber"
+
+          "base_version=$baseVersion" >> $env:GITHUB_OUTPUT
+          "build_number=$buildNumber" >> $env:GITHUB_OUTPUT
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          ./scripts/build-installer.ps1 `
+            -Configuration $env:CONFIGURATION `
+            -Runtime $env:RUNTIME `
+            -Version "${{ steps.version.outputs.version }}" `
+            -BuildNumber "${{ steps.version.outputs.build_number }}"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: HtmlEditor-Setup-${{ steps.version.outputs.version }}-${{ env.RUNTIME }}
+          path: artifacts/installer/*.exe
+          if-no-files-found: error
+
+      - name: Install ORAS
+        uses: oras-project/setup-oras@v1
+
+      - name: Login to GitHub Container Registry
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          $env:GITHUB_TOKEN | oras login ghcr.io `
+            --username "${{ github.actor }}" `
+            --password-stdin
+
+      - name: Publish installer to GitHub Packages
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem -LiteralPath artifacts/installer -Filter "*.exe" | Select-Object -First 1
+          if (-not $installer) {
+            throw "Installer was not found in artifacts/installer."
+          }
+
+          $owner = "${{ github.repository_owner }}".ToLowerInvariant()
+          $package = "${{ env.PACKAGE_NAME }}".ToLowerInvariant()
+          $version = "${{ steps.version.outputs.version }}"
+          $ref = "ghcr.io/$owner/${package}:$version"
+          $installerLayer = "artifacts/installer/$($installer.Name):application/vnd.microsoft.portable-executable"
+
+          oras push $ref `
+            --artifact-type "application/vnd.htmleditor.windows.installer.v1" `
+            $installerLayer `
+            --annotation "org.opencontainers.image.title=HtmlEditor Windows Installer" `
+            --annotation "org.opencontainers.image.description=HtmlEditor Windows installer built by GitHub Actions" `
+            --annotation "org.opencontainers.image.version=$version" `
+            --annotation "org.opencontainers.image.source=https://github.com/${{ github.repository }}"
+
+          if ("${{ github.ref_type }}" -eq "branch" -and "${{ github.ref_name }}" -eq "main") {
+            $latestRef = "ghcr.io/$owner/${package}:latest"
+            oras push $latestRef `
+              --artifact-type "application/vnd.htmleditor.windows.installer.v1" `
+              $installerLayer `
+              --annotation "org.opencontainers.image.title=HtmlEditor Windows Installer" `
+              --annotation "org.opencontainers.image.description=HtmlEditor Windows installer built by GitHub Actions" `
+              --annotation "org.opencontainers.image.version=$version" `
+              --annotation "org.opencontainers.image.source=https://github.com/${{ github.repository }}"
+          }

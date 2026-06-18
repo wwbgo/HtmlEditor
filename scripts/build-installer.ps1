@@ -2,6 +2,7 @@ param(
     [string]$Configuration = "Release",
     [string]$Runtime = "win-x64",
     [string]$Version = "",
+    [string]$BuildNumber = "",
     [string]$IsccPath = "",
     [switch]$SkipPublish
 )
@@ -29,6 +30,10 @@ if ($Version -match '^\d+\.\d+$') {
     $Version = "$Version.0"
 }
 
+if ([string]::IsNullOrWhiteSpace($BuildNumber)) {
+    $BuildNumber = if ($Version -match '^\d+\.\d+\.\d+\.(\d+)$') { $Matches[1] } else { "1" }
+}
+
 if (-not $SkipPublish) {
     dotnet publish $projectPath `
         -f $targetFramework `
@@ -37,7 +42,8 @@ if (-not $SkipPublish) {
         --self-contained true `
         /p:WindowsPackageType=None `
         /p:PublishSingleFile=false `
-        /p:ApplicationDisplayVersion=$Version
+        /p:ApplicationDisplayVersion=$Version `
+        /p:ApplicationVersion=$BuildNumber
 }
 
 if (-not (Test-Path -LiteralPath (Join-Path $publishDir "HtmlEditor.exe"))) {
