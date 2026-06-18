@@ -75,7 +75,6 @@ artifacts\installer
 工作流文件位于 `.github/workflows/package.yml`，触发条件：
 
 - 推送到 `main` 分支。
-- 推送匹配 `v*` 的 tag。
 - 手动触发 workflow。
 
 CI 会执行：
@@ -88,24 +87,18 @@ CI 会执行：
 - 将安装包发布到 GitHub Releases。
 - 通过 GHCR 以 OCI artifact 形式发布到 GitHub Packages。
 
-Actions artifact 链接不是稳定的公开下载链接，通常需要 GitHub 访问权限。安装包下载建议使用 Releases 的 Assets：
-
-- `main` 分支构建会更新 `latest-build` 预发布版本：
+每次推送到 `main` 分支时，CI 会查找已有的最大 `1.0.x` tag，将 `x` 自动加一，构建安装包，创建新 tag，并把安装包发布到这个 tag 对应的 GitHub Release。例如：
 
 ```text
-https://github.com/wwbgo/HtmlEditor/releases/tag/latest-build
+1.0.0
+1.0.1
+1.0.2
 ```
 
-最新安装包固定下载地址：
+安装包下载建议使用 Releases 的 Assets：
 
 ```text
-https://github.com/wwbgo/HtmlEditor/releases/download/latest-build/HtmlEditor-Setup-latest-win-x64.exe
-```
-
-- `v*` tag 会创建或更新对应正式版本，例如：
-
-```text
-https://github.com/wwbgo/HtmlEditor/releases/tag/v1.0.0
+https://github.com/wwbgo/HtmlEditor/releases/tag/1.0.0
 ```
 
 Package 名称：
@@ -120,11 +113,9 @@ ghcr.io/<owner>/htmleditor-windows-installer:<version>
 ghcr.io/<owner>/htmleditor-windows-installer:latest
 ```
 
-CI 版本号由项目版本或 tag 版本加 GitHub Actions run number 组成。例如：
+CI 使用自动生成的 tag 作为显示版本号，使用 GitHub Actions run number 作为 Windows 应用内部构建号。
 
-```text
-1.0.0.27
-```
+Actions artifact 链接不是稳定的公开下载链接，通常需要 GitHub 访问权限。安装包下载应优先使用 Release Assets。
 
 ## 编辑说明
 

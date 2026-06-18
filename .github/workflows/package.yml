@@ -4,13 +4,15 @@ on:
   push:
     branches:
       - main
-    tags:
-      - "v*"
   workflow_dispatch:
 
 permissions:
   contents: write
   packages: write
+
+concurrency:
+  group: package-release
+  cancel-in-progress: false
 
 env:
   DOTNET_VERSION: "10.0.x"
@@ -47,32 +49,37 @@ jobs:
       - name: Install Inno Setup
         run: choco install innosetup --no-progress -y
 
-      - name: Resolve package version
+      - name: Resolve release version
         id: version
         shell: pwsh
         run: |
-          [xml]$project = Get-Content -LiteralPath HtmlEditor.csproj
-          $baseVersion = ($project.Project.PropertyGroup | Where-Object { $_.ApplicationDisplayVersion } | Select-Object -First 1).ApplicationDisplayVersion
-          if ([string]::IsNullOrWhiteSpace($baseVersion)) {
-            $baseVersion = "1.0.0"
-          }
-          if ($env:GITHUB_REF_TYPE -eq "tag" -and $env:GITHUB_REF_NAME -match '^v(.+)$') {
-            $baseVersion = $Matches[1]
+          git fetch --tags --force
+
+          $major = 1
+          $minor = 0
+          $latestPatch = -1
+
+          $tags = git tag --list "$major.$minor.*"
+          foreach ($tag in $tags) {
+            if ($tag -match "^$major\.$minor\.(\d+)$") {
+              $patch = [int]$Matches[1]
+              if ($patch -gt $latestPatch) {
+                $latestPatch = $patch
+              }
+            }
           }
 
-          $parts = @($baseVersion -split '[^0-9]+' | Where-Object { $_ })
-          if ($parts.Count -eq 0) {
-            $parts = @("1", "0", "0")
+          $nextPatch = $latestPatch + 1
+          if ($nextPatch -lt 0) {
+            $nextPatch = 0
           }
 
-          $major = [int]$parts[0]
-          $minor = if ($parts.Count -ge 2) { [int]$parts[1] } else { 0 }
-          $patch = if ($parts.Count -ge 3) { [int]$parts[2] } else { 0 }
+          $version = "$major.$minor.$nextPatch"
           $buildNumber = [int]$env:GITHUB_RUN_NUMBER
-          $version = "$major.$minor.$patch.$buildNumber"
+          $tag = $version
 
-          "base_version=$baseVersion" >> $env:GITHUB_OUTPUT
           "build_number=$buildNumber" >> $env:GITHUB_OUTPUT
+          "tag=$tag" >> $env:GITHUB_OUTPUT
           "version=$version" >> $env:GITHUB_OUTPUT
 
       - name: Build installer
@@ -91,8 +98,23 @@ jobs:
           path: artifacts/installer/*.exe
           if-no-files-found: error
 
+      - name: Create release tag
+        shell: pwsh
+        run: |
+          $tag = "${{ steps.version.outputs.tag }}"
+          $sha = "${{ github.sha }}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if ((git ls-remote --tags origin "refs/tags/$tag") -match "refs/tags/$tag") {
+            throw "Release tag already exists: $tag"
+          }
+
+          git tag $tag $sha
+          git push origin "refs/tags/$tag"
+
       - name: Publish GitHub Release asset
-        if: (github.ref_type == 'tag' && github.ref_name != 'latest-build') || (github.ref_type == 'branch' && github.ref_name == 'main')
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -102,63 +124,28 @@ jobs:
             throw "Installer was not found in artifacts/installer."
           }
 
-          $isTagBuild = "${{ github.ref_type }}" -eq "tag"
           $sha = "${{ github.sha }}"
+          $tag = "${{ steps.version.outputs.tag }}"
           $version = "${{ steps.version.outputs.version }}"
           $repository = "${{ github.repository }}"
-
-          if ($isTagBuild) {
-            $tag = "${{ github.ref_name }}"
-            $releaseTitle = "HtmlEditor $tag"
-            $releaseNotes = "Windows installer built by GitHub Actions.`n`nVersion: $version"
-            $releaseInstaller = $installer.FullName
-          }
-          else {
-            $tag = "latest-build"
-            $releaseTitle = "HtmlEditor Latest Build"
-            $runUrl = "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-            $releaseNotes = "Latest Windows installer built from main.`n`nVersion: $version`nCommit: $sha`nRun: $runUrl"
-            $releaseDir = Join-Path $env:RUNNER_TEMP "release-assets"
-            New-Item -ItemType Directory -Force -Path $releaseDir | Out-Null
-            $releaseInstaller = Join-Path $releaseDir "HtmlEditor-Setup-latest-win-x64.exe"
-            Copy-Item -LiteralPath $installer.FullName -Destination $releaseInstaller -Force
-
-            git tag -f $tag $sha
-            git push origin "refs/tags/$tag" --force
-          }
+          $releaseTitle = "HtmlEditor $version"
+          $runUrl = "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          $releaseNotes = "Windows installer built from main.`n`nVersion: $version`nCommit: $sha`nRun: $runUrl"
 
           gh release view $tag --repo $repository *> $null
           if ($LASTEXITCODE -ne 0) {
-            if ($isTagBuild) {
-              gh release create $tag $releaseInstaller `
-                --repo $repository `
-                --title $releaseTitle `
-                --notes $releaseNotes
-            }
-            else {
-              gh release create $tag $releaseInstaller `
-                --repo $repository `
-                --title $releaseTitle `
-                --notes $releaseNotes `
-                --prerelease
-            }
+            gh release create $tag $installer.FullName `
+              --repo $repository `
+              --title $releaseTitle `
+              --notes $releaseNotes
           }
           else {
-            if ($isTagBuild) {
-              gh release edit $tag `
-                --repo $repository `
-                --title $releaseTitle `
-                --notes $releaseNotes
-            }
-            else {
-              gh release edit $tag `
-                --repo $repository `
-                --title $releaseTitle `
-                --notes $releaseNotes `
-                --prerelease
-            }
+            gh release edit $tag `
+              --repo $repository `
+              --title $releaseTitle `
+              --notes $releaseNotes
 
-            gh release upload $tag $releaseInstaller `
+            gh release upload $tag $installer.FullName `
               --repo $repository `
               --clobber
           }
@@ -197,13 +184,11 @@ jobs:
             --annotation "org.opencontainers.image.version=$version" `
             --annotation "org.opencontainers.image.source=https://github.com/${{ github.repository }}"
 
-          if ("${{ github.ref_type }}" -eq "branch" -and "${{ github.ref_name }}" -eq "main") {
-            $latestRef = "ghcr.io/$owner/${package}:latest"
-            oras push $latestRef `
-              --artifact-type "application/vnd.htmleditor.windows.installer.v1" `
-              $installerLayer `
-              --annotation "org.opencontainers.image.title=HtmlEditor Windows Installer" `
-              --annotation "org.opencontainers.image.description=HtmlEditor Windows installer built by GitHub Actions" `
-              --annotation "org.opencontainers.image.version=$version" `
-              --annotation "org.opencontainers.image.source=https://github.com/${{ github.repository }}"
-          }
+          $latestRef = "ghcr.io/$owner/${package}:latest"
+          oras push $latestRef `
+            --artifact-type "application/vnd.htmleditor.windows.installer.v1" `
+            $installerLayer `
+            --annotation "org.opencontainers.image.title=HtmlEditor Windows Installer" `
+            --annotation "org.opencontainers.image.description=HtmlEditor Windows installer built by GitHub Actions" `
+            --annotation "org.opencontainers.image.version=$version" `
+            --annotation "org.opencontainers.image.source=https://github.com/${{ github.repository }}"

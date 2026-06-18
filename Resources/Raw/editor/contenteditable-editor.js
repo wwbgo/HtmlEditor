@@ -192,11 +192,12 @@
     lastBodyAttrs = parts.bodyAttrs;
     lastHtmlAttrs = parts.htmlAttrs;
 
-    applyDocumentHead(parts);
+    applyDocumentHead(parts, false);
 
     const editable = document.getElementById("document-body");
     editable.innerHTML = parts.body || "";
     prepareEditableDom(editable);
+    applyDocumentHead(parts, true);
     resetHistory();
   }
 
@@ -284,6 +285,9 @@
 
   function mergeElementContent(originalElement, editedElement) {
     if (isProtectedContent(originalElement) || isProtectedContent(editedElement)) {
+      if (canMergeDirectTextContent(originalElement)) {
+        mergeDirectTextNodes(originalElement, editedElement);
+      }
       return;
     }
 
@@ -398,7 +402,11 @@
       return false;
     }
 
-    return element.children.length === 0;
+    return element.children.length === 0 || shouldMakeDirectTextContainerEditable(element);
+  }
+
+  function shouldMakeDirectTextContainerEditable(element) {
+    return element.tagName.toLowerCase() === "li";
   }
 
   function hasMeaningfulEditableText(element) {
@@ -409,6 +417,11 @@
 
       return node.nodeType === Node.ELEMENT_NODE && node.tagName.toLowerCase() === "br";
     });
+  }
+
+  function canMergeDirectTextContent(element) {
+    const tag = element.tagName.toLowerCase();
+    return editableTextTags.has(tag);
   }
 
   function isEditableAsset(element) {
@@ -473,7 +486,7 @@
     });
   }
 
-  function applyDocumentHead(parts) {
+  function applyDocumentHead(parts, executeScripts) {
     document.head.querySelectorAll("[data-html-editor-host]").forEach((element) => element.remove());
 
     if (lastBaseHref) {
@@ -489,16 +502,85 @@
 
     const template = document.createElement("template");
     template.innerHTML = parts.headExtras;
-    Array.from(template.content.children)
-      .filter((element) => {
-        const tag = element.tagName.toLowerCase();
-        return tag === "link" || tag === "style";
-      })
-      .forEach((element) => {
-        const clone = element.cloneNode(true);
-        clone.setAttribute("data-html-editor-host", "true");
-        document.head.appendChild(clone);
+    Array.from(template.content.children).forEach((sourceElement) => {
+      const element = createPreviewHeadElement(document, sourceElement, executeScripts);
+      if (!element) {
+        return;
+      }
+
+      if (isTailwindCdnScript(sourceElement)) {
+        normalizeTailwindPreviewConfig(document);
+      }
+
+      document.head.appendChild(element);
+    });
+  }
+
+  function createPreviewHeadElement(targetDocument, sourceElement, executeScripts) {
+    const tag = sourceElement.tagName.toLowerCase();
+    if (tag !== "link" && tag !== "style" && tag !== "script") {
+      return null;
+    }
+
+    if (tag === "script" && !executeScripts) {
+      return null;
+    }
+
+    const element = targetDocument.createElement(tag);
+    Array.from(sourceElement.attributes).forEach((attribute) => {
+      element.setAttribute(attribute.name, attribute.value);
+    });
+    element.setAttribute("data-html-editor-host", "true");
+
+    if (tag === "script") {
+      if (!sourceElement.hasAttribute("async") && !sourceElement.hasAttribute("defer")) {
+        element.async = false;
+      }
+      element.textContent = sourceElement.textContent || "";
+    } else {
+      element.innerHTML = sourceElement.innerHTML;
+    }
+
+    return element;
+  }
+
+  function isTailwindCdnScript(element) {
+    if (element.tagName.toLowerCase() !== "script") {
+      return false;
+    }
+
+    const src = element.getAttribute("src") || "";
+    if (!src) {
+      return false;
+    }
+
+    try {
+      return new URL(src, document.baseURI).hostname.toLowerCase() === "cdn.tailwindcss.com";
+    } catch {
+      return src.toLowerCase().includes("cdn.tailwindcss.com");
+    }
+  }
+
+  function normalizeTailwindPreviewConfig(targetDocument) {
+    const view = targetDocument.defaultView;
+    if (!view || !view.tailwind || typeof view.tailwind !== "object") {
+      return;
+    }
+
+    const tailwind = view.tailwind;
+    if (!tailwind.config || typeof tailwind.config !== "object") {
+      const legacyConfig = {};
+      Object.keys(tailwind).forEach((key) => {
+        if (key !== "config") {
+          legacyConfig[key] = tailwind[key];
+        }
       });
+      tailwind.config = legacyConfig;
+    }
+
+    if (!Array.isArray(tailwind.config.plugins)) {
+      tailwind.config.plugins = [];
+    }
   }
 
   function buildCompleteHtml(html) {

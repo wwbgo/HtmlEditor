@@ -32,7 +32,6 @@ body {
 
 #document-body [data-html-editor-editable="true"]:focus {
   outline-color: #1f6f78;
-  background: rgba(232, 246, 247, 0.72);
 }
 
 #document-body [data-html-editor-selected="true"] {
@@ -55,7 +54,7 @@ body {
   cursor: pointer;
 }
 
-/* Fallback for Tailwind-powered static pages while external scripts are not run in the editor preview. */
+/* Fallback for Tailwind-powered static pages while preview scripts are still loading. */
 #document-body .hidden {
   display: none !important;
 }

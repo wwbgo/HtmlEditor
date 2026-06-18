@@ -75,7 +75,6 @@ To specify a version:
 The workflow at `.github/workflows/package.yml` runs on:
 
 - Pushes to `main`.
-- Tags matching `v*`.
 - Manual workflow dispatch.
 
 It performs these steps:
@@ -88,24 +87,18 @@ It performs these steps:
 - Publishes installer downloads to GitHub Releases.
 - Publishes the installer to GitHub Packages through GHCR as an OCI artifact.
 
-Actions artifact URLs are not intended as stable public download links and may require GitHub access. Use the release assets for installer downloads:
-
-- `main` builds update the `latest-build` prerelease:
+On every `main` push, CI finds the highest existing `1.0.x` tag, increments `x`, builds the installer, creates the new tag, and publishes the installer to that tag's GitHub Release. For example:
 
 ```text
-https://github.com/wwbgo/HtmlEditor/releases/tag/latest-build
+1.0.0
+1.0.1
+1.0.2
 ```
 
-Stable latest installer URL:
+Installer downloads should use the Release assets:
 
 ```text
-https://github.com/wwbgo/HtmlEditor/releases/download/latest-build/HtmlEditor-Setup-latest-win-x64.exe
-```
-
-- `v*` tags create or update the matching release, for example:
-
-```text
-https://github.com/wwbgo/HtmlEditor/releases/tag/v1.0.0
+https://github.com/wwbgo/HtmlEditor/releases/tag/1.0.0
 ```
 
 Package name:
@@ -120,11 +113,9 @@ Pushes to `main` also publish:
 ghcr.io/<owner>/htmleditor-windows-installer:latest
 ```
 
-CI versions are generated from the project or tag version plus the GitHub Actions run number. For example:
+CI uses the auto-generated tag as the display version and the GitHub Actions run number as the Windows application build number.
 
-```text
-1.0.0.27
-```
+Actions artifact URLs are not intended as stable public download links and may require GitHub access. Use the release assets for installer downloads.
 
 ## Editing Notes
 

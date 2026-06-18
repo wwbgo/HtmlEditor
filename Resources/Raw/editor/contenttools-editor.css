@@ -34,7 +34,7 @@ body {
   max-width: 100%;
 }
 
-/* Fallback for Tailwind-powered static pages while external scripts are not run in the editor preview. */
+/* Fallback for Tailwind-powered static pages while preview scripts are still loading. */
 #document-body .hidden {
   display: none !important;
 }
