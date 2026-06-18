@@ -8,6 +8,7 @@ using Microsoft.Maui.Storage;
 #if WINDOWS
 using Microsoft.UI.Xaml.Input;
 using Microsoft.Web.WebView2.Core;
+using System.Runtime.InteropServices.WindowsRuntime;
 using Windows.Storage.Pickers;
 using WinRT.Interop;
 #endif
@@ -17,8 +18,8 @@ namespace HtmlEditor;
 public partial class MainPage : ContentPage
 {
     private const string PreferencesWorkspaceKey = "workspace.path";
-    private const string EditorVirtualHostName = "app.htmleditor.local";
-    private const string SiteVirtualHostName = "site.htmleditor.local";
+    private const string EditorVirtualHostName = "appassets.example";
+    private const string SiteVirtualHostName = "siteassets.example";
     private readonly HtmlFileTreeService _treeService = new();
     private readonly HtmlDocumentService _documentService = new();
     private readonly GitService _gitService = new();
@@ -36,6 +37,9 @@ public partial class MainPage : ContentPage
     private string? _diffBackupLabel;
 #if WINDOWS
     private bool _webMessageHooked;
+    private bool _webResourceRequestHooked;
+    private readonly Dictionary<string, string> _virtualHostFolders = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _virtualHostFilters = new(StringComparer.OrdinalIgnoreCase);
 #endif
 
     public ObservableCollection<FileTreeNode> VisibleTreeItems { get; } = [];
@@ -1150,12 +1154,116 @@ public partial class MainPage : ContentPage
         }
 
         await webView2.EnsureCoreWebView2Async();
-        webView2.CoreWebView2.SetVirtualHostNameToFolderMapping(
+        var coreWebView = webView2.CoreWebView2;
+        var fullFolderPath = Path.GetFullPath(folderPath);
+        _virtualHostFolders[hostName] = fullFolderPath;
+
+        if (_virtualHostFilters.Add(hostName))
+        {
+            coreWebView.AddWebResourceRequestedFilter(
+                $"https://{hostName}/*",
+                CoreWebView2WebResourceContext.All);
+        }
+
+        if (!_webResourceRequestHooked)
+        {
+            coreWebView.WebResourceRequested += OnVirtualHostWebResourceRequested;
+            _webResourceRequestHooked = true;
+        }
+
+        coreWebView.SetVirtualHostNameToFolderMapping(
             hostName,
-            folderPath,
+            fullFolderPath,
             CoreWebView2HostResourceAccessKind.Allow);
 
         return true;
+    }
+
+    private void OnVirtualHostWebResourceRequested(CoreWebView2 sender, CoreWebView2WebResourceRequestedEventArgs args)
+    {
+        try
+        {
+            var requestUri = new Uri(args.Request.Uri);
+            if (!_virtualHostFolders.TryGetValue(requestUri.Host, out var rootPath))
+            {
+                return;
+            }
+
+            var filePath = ResolveVirtualHostFilePath(rootPath, requestUri);
+            if (filePath is null)
+            {
+                args.Response = CreateTextResponse(sender, 404, "Not Found");
+                return;
+            }
+
+            var content = new MemoryStream(File.ReadAllBytes(filePath), writable: false).AsRandomAccessStream();
+            var headers = $"Content-Type: {GetContentType(filePath)}\r\nCache-Control: no-store";
+            args.Response = sender.Environment.CreateWebResourceResponse(content, 200, "OK", headers);
+        }
+        catch
+        {
+            args.Response = CreateTextResponse(sender, 500, "Internal Server Error");
+        }
+    }
+
+    private static string? ResolveVirtualHostFilePath(string rootPath, Uri requestUri)
+    {
+        var relativePath = Uri.UnescapeDataString(requestUri.AbsolutePath.TrimStart('/'))
+            .Replace('/', Path.DirectorySeparatorChar);
+        if (string.IsNullOrWhiteSpace(relativePath))
+        {
+            relativePath = "index.html";
+        }
+
+        var fullPath = Path.GetFullPath(Path.Combine(rootPath, relativePath));
+        if (Directory.Exists(fullPath))
+        {
+            fullPath = Path.Combine(fullPath, "index.html");
+        }
+
+        return IsSameOrChildPath(fullPath, rootPath) && File.Exists(fullPath)
+            ? fullPath
+            : null;
+    }
+
+    private static CoreWebView2WebResourceResponse CreateTextResponse(
+        CoreWebView2 sender,
+        int statusCode,
+        string reasonPhrase)
+    {
+        var content = new MemoryStream(Encoding.UTF8.GetBytes(reasonPhrase), writable: false).AsRandomAccessStream();
+        return sender.Environment.CreateWebResourceResponse(
+            content,
+            statusCode,
+            reasonPhrase,
+            "Content-Type: text/plain; charset=utf-8\r\nCache-Control: no-store");
+    }
+
+    private static string GetContentType(string path)
+    {
+        return Path.GetExtension(path).ToLowerInvariant() switch
+        {
+            ".html" or ".htm" => "text/html; charset=utf-8",
+            ".css" => "text/css; charset=utf-8",
+            ".js" => "application/javascript; charset=utf-8",
+            ".json" => "application/json; charset=utf-8",
+            ".svg" => "image/svg+xml",
+            ".png" => "image/png",
+            ".jpg" or ".jpeg" => "image/jpeg",
+            ".gif" => "image/gif",
+            ".webp" => "image/webp",
+            ".ico" => "image/x-icon",
+            ".avif" => "image/avif",
+            ".woff" => "font/woff",
+            ".woff2" => "font/woff2",
+            ".ttf" => "font/ttf",
+            ".otf" => "font/otf",
+            ".mp4" => "video/mp4",
+            ".webm" => "video/webm",
+            ".mp3" => "audio/mpeg",
+            ".wav" => "audio/wav",
+            _ => "application/octet-stream"
+        };
     }
 
     private async void OnEditorWebMessageReceived(CoreWebView2 sender, CoreWebView2WebMessageReceivedEventArgs args)
