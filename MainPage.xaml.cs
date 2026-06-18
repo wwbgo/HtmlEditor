@@ -78,6 +78,9 @@ public partial class MainPage : ContentPage
         await CopyPackageFileAsync("editor/contenttools-index.html", Path.Combine(editorRoot, "contenttools-index.html"));
         await CopyPackageFileAsync("editor/contenttools-editor.css", Path.Combine(editorRoot, "contenttools-editor.css"));
         await CopyPackageFileAsync("editor/contenttools-editor.js", Path.Combine(editorRoot, "contenttools-editor.js"));
+        await CopyPackageFileAsync("editor/contenteditable-index.html", Path.Combine(editorRoot, "contenteditable-index.html"));
+        await CopyPackageFileAsync("editor/contenteditable-editor.css", Path.Combine(editorRoot, "contenteditable-editor.css"));
+        await CopyPackageFileAsync("editor/contenteditable-editor.js", Path.Combine(editorRoot, "contenteditable-editor.js"));
         await CopyPackageFileAsync("editor/contenttools/content-tools.min.js", Path.Combine(editorRoot, "contenttools", "content-tools.min.js"));
         await CopyPackageFileAsync("editor/contenttools/content-tools.min.css", Path.Combine(editorRoot, "contenttools", "content-tools.min.css"));
         await CopyPackageFileAsync("editor/contenttools/images/icons.woff", Path.Combine(editorRoot, "contenttools", "images", "icons.woff"));
@@ -131,9 +134,12 @@ public partial class MainPage : ContentPage
             return;
         }
 
-        var selectedMode = EditorModePicker.SelectedIndex == 1
-            ? EditorMode.ContentTools
-            : EditorMode.GrapesJs;
+        var selectedMode = EditorModePicker.SelectedIndex switch
+        {
+            1 => EditorMode.ContentTools,
+            2 => EditorMode.ContentEditable,
+            _ => EditorMode.GrapesJs
+        };
 
         if (selectedMode == _editorMode && _editorReady)
         {
@@ -320,9 +326,12 @@ public partial class MainPage : ContentPage
             return;
         }
 
-        var fileName = _editorMode == EditorMode.ContentTools
-            ? "contenttools-index.html"
-            : "index.html";
+        var fileName = _editorMode switch
+        {
+            EditorMode.ContentTools => "contenttools-index.html",
+            EditorMode.ContentEditable => "contenteditable-index.html",
+            _ => "index.html"
+        };
 
         var shellUrl = await GetEditorShellUrlAsync(fileName);
         EditorWebView.Source = new UrlWebViewSource
@@ -333,7 +342,12 @@ public partial class MainPage : ContentPage
 
     private static string GetEditorModeName(EditorMode mode)
     {
-        return mode == EditorMode.ContentTools ? "ContentTools" : "GrapesJS";
+        return mode switch
+        {
+            EditorMode.ContentTools => "ContentTools",
+            EditorMode.ContentEditable => "ContentEditable",
+            _ => "GrapesJS"
+        };
     }
 
     private void RefreshVisibleTree()
@@ -809,6 +823,7 @@ public partial class MainPage : ContentPage
             return;
         }
 
+        webView2.CoreWebView2.WebMessageReceived -= OnEditorWebMessageReceived;
         webView2.CoreWebView2.WebMessageReceived += OnEditorWebMessageReceived;
         _webMessageHooked = true;
     }

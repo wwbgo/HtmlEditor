@@ -119,6 +119,7 @@
                             <Picker.Items>
                                 <x:String>GrapesJS</x:String>
                                 <x:String>ContentTools</x:String>
+                                <x:String>ContentEditable</x:String>
                             </Picker.Items>
                         </Picker>
                     </Grid>

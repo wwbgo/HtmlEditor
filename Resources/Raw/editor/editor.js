@@ -200,9 +200,10 @@
       }
 
       const relative = pathRelative(decodeURIComponent(base.pathname), decodeURIComponent(target.pathname));
-      return relative
-        ? `${relative}${target.search || ""}${target.hash || ""}`
-        : value;
+      const relativePath = target.pathname.endsWith("/")
+        ? appendIndexDocument(relative)
+        : relative;
+      return `${relativePath || "index.html"}${target.search || ""}${target.hash || ""}`;
     } catch {
       return value;
     }
@@ -217,6 +218,14 @@
       || url.startsWith("mailto:")
       || url.startsWith("tel:")
       || url.startsWith("javascript:");
+  }
+
+  function appendIndexDocument(path) {
+    if (!path) {
+      return "index.html";
+    }
+
+    return `${path.replace(/\/+$/, "")}/index.html`;
   }
 
   function pathRelative(basePath, targetPath) {

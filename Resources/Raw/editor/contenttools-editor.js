@@ -914,9 +914,10 @@
       }
 
       const relative = pathRelative(decodeURIComponent(base.pathname), decodeURIComponent(target.pathname));
-      return relative
-        ? `${relative}${target.search || ""}${target.hash || ""}`
-        : value;
+      const relativePath = target.pathname.endsWith("/")
+        ? appendIndexDocument(relative)
+        : relative;
+      return `${relativePath || "index.html"}${target.search || ""}${target.hash || ""}`;
     } catch {
       return value;
     }
