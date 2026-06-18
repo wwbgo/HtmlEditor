@@ -130,4 +130,4 @@ CI versions are generated from the project or tag version plus the GitHub Action
 
 `ContentEditable` is the default mode. It is intentionally conservative: it edits text leaf nodes and selected media/link attributes, then merges the changed content back into the original HTML. This avoids common editor serialization problems such as changing `img` into `div`, removing wrapper elements, or adding unwanted paragraph tags.
 
-For static sites with root-relative local assets, the editor resolves assets for preview and rewrites them back to relative paths on save.
+On Windows, WebView2 maps the opened static site folder to a virtual HTTPS host for preview. Root-relative and relative assets load through that mapped site root, so the editor does not need to rewrite original HTML paths for preview. If an editor serializes virtual or legacy `file://` asset URLs, save normalization rewrites those URLs back to relative paths.

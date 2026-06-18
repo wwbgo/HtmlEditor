@@ -5,6 +5,8 @@
   let lastFullHtml = "";
   let lastBaseHref = "";
   let lastSiteRootHref = "";
+  let lastLocalBaseHref = "";
+  let lastLocalSiteRootHref = "";
   let lastTitle = "HTML Document";
   let lastHeadExtras = "";
   let lastBodyAttrs = "";
@@ -695,7 +697,7 @@
     }
   }
 
-  function loadHtml(fullHtml, baseHref, siteRootHref) {
+  function loadHtml(fullHtml, baseHref, siteRootHref, localBaseHref, localSiteRootHref) {
     if (editor && editor.isEditing && editor.isEditing()) {
       editor.stop(true);
     }
@@ -703,6 +705,8 @@
     lastFullHtml = fullHtml || "";
     lastBaseHref = baseHref || "";
     lastSiteRootHref = siteRootHref || lastBaseHref;
+    lastLocalBaseHref = localBaseHref || lastBaseHref;
+    lastLocalSiteRootHref = localSiteRootHref || lastSiteRootHref || lastLocalBaseHref;
     const parts = splitHtml(lastFullHtml);
     lastTitle = parts.title;
     lastHeadExtras = parts.headExtras;
@@ -889,6 +893,10 @@
       return value;
     }
 
+    if (!isAbsoluteUrl(url)) {
+      return value;
+    }
+
     const siteRootRelativeUrl = relativizeSiteRootUrl(url);
     if (siteRootRelativeUrl !== null) {
       return siteRootRelativeUrl;
@@ -904,6 +912,7 @@
 
     try {
       const base = new URL(lastBaseHref);
+      const localBase = new URL(lastLocalBaseHref || lastBaseHref);
       const target = new URL(url, lastBaseHref);
       const sameLocalOrigin = base.protocol === "file:"
         ? target.protocol === "file:"
@@ -913,7 +922,7 @@
         return value;
       }
 
-      const relative = pathRelative(decodeURIComponent(base.pathname), decodeURIComponent(target.pathname));
+      const relative = pathRelative(decodeURIComponent(localBase.pathname), decodeURIComponent(target.pathname));
       const relativePath = target.pathname.endsWith("/")
         ? appendIndexDocument(relative)
         : relative;
@@ -924,26 +933,43 @@
   }
 
   function relativizeSiteRootUrl(url) {
-    if (!isRootRelativeUrl(url) || !lastSiteRootHref || !lastBaseHref) {
+    if (!lastSiteRootHref || !lastBaseHref || !lastLocalBaseHref) {
       return null;
     }
 
     try {
       const base = new URL(lastBaseHref);
       const siteRoot = new URL(lastSiteRootHref);
-      if (base.protocol !== "file:" || siteRoot.protocol !== "file:") {
+      const localBase = new URL(lastLocalBaseHref);
+      const localSiteRoot = new URL(lastLocalSiteRootHref || lastLocalBaseHref);
+      const parts = splitUrlParts(url);
+      const target = isRootRelativeUrl(url)
+        ? new URL(`${parts.path.slice(1)}${parts.search}${parts.hash}`, siteRoot)
+        : new URL(url, base);
+
+      if (target.protocol === "file:") {
+        if (localBase.protocol !== "file:") {
+          return null;
+        }
+
+        const relative = pathRelative(decodeURIComponent(localBase.pathname), decodeURIComponent(target.pathname));
+        const relativePath = target.pathname.endsWith("/") ? appendIndexDocument(relative) : relative;
+
+        return `${relativePath || "index.html"}${target.search || ""}${target.hash || ""}`;
+      }
+
+      if (target.origin !== siteRoot.origin || base.origin !== siteRoot.origin) {
         return null;
       }
 
-      const parts = splitUrlParts(url);
-      const siteRootPath = normalizeBasePath(decodeURIComponent(siteRoot.pathname));
-      const targetPath = siteRootPath + decodePathPart(parts.path.slice(1));
-      const relative = pathRelative(decodeURIComponent(base.pathname), targetPath);
+      const siteRelativePath = decodeURIComponent(target.pathname).replace(/^\/+/, "");
+      const localTargetPath = normalizeBasePath(decodeURIComponent(localSiteRoot.pathname)) + siteRelativePath;
+      const relative = pathRelative(decodeURIComponent(localBase.pathname), localTargetPath);
       const relativePath = parts.path.endsWith("/")
         ? appendIndexDocument(relative)
         : relative;
 
-      return `${relativePath || "index.html"}${parts.search}${parts.hash}`;
+      return `${relativePath || "index.html"}${target.search || ""}${target.hash || ""}`;
     } catch {
       return null;
     }
@@ -967,14 +993,6 @@
     };
   }
 
-  function decodePathPart(path) {
-    try {
-      return decodeURIComponent(path);
-    } catch {
-      return path;
-    }
-  }
-
   function appendIndexDocument(path) {
     if (!path) {
       return "index.html";
@@ -985,12 +1003,14 @@
 
   function shouldKeepUrl(value) {
     const url = String(value || "").trim().toLowerCase();
+    if (url.startsWith("http:") || url.startsWith("https:")) {
+      return !isRuntimeLocalAbsoluteUrl(value);
+    }
+
     return url.startsWith("#")
       || url.startsWith("//")
       || url.startsWith("data:")
       || url.startsWith("blob:")
-      || url.startsWith("http:")
-      || url.startsWith("https:")
       || url.startsWith("mailto:")
       || url.startsWith("tel:")
       || url.startsWith("javascript:");
@@ -999,7 +1019,20 @@
   function isRuntimeLocalAbsoluteUrl(url) {
     try {
       const parsed = new URL(url, lastBaseHref);
-      return parsed.protocol === "file:";
+      return parsed.protocol === "file:" || isSameOrigin(parsed, lastBaseHref) || isSameOrigin(parsed, lastSiteRootHref);
+    } catch {
+      return false;
+    }
+  }
+
+  function isSameOrigin(parsedUrl, baseHref) {
+    if (!baseHref) {
+      return false;
+    }
+
+    try {
+      const base = new URL(baseHref);
+      return parsedUrl.origin === base.origin;
     } catch {
       return false;
     }
@@ -1331,8 +1364,14 @@
   }
 
   window.editorHost = {
-    loadHtmlBase64(base64, baseHrefBase64, siteRootHrefBase64) {
-      loadHtml(fromBase64(base64), fromBase64(baseHrefBase64), fromBase64(siteRootHrefBase64));
+    loadHtmlBase64(base64, baseHrefBase64, siteRootHrefBase64, localBaseHrefBase64, localSiteRootHrefBase64) {
+      loadHtml(
+        fromBase64(base64),
+        fromBase64(baseHrefBase64),
+        fromBase64(siteRootHrefBase64),
+        fromBase64(localBaseHrefBase64),
+        fromBase64(localSiteRootHrefBase64)
+      );
       return true;
     },
     getHtmlBase64() {
@@ -1364,7 +1403,7 @@
       };
     },
     reload() {
-      loadHtml(lastFullHtml, lastBaseHref, lastSiteRootHref);
+      loadHtml(lastFullHtml, lastBaseHref, lastSiteRootHref, lastLocalBaseHref, lastLocalSiteRootHref);
       return true;
     },
     isReady() {

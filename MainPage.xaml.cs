@@ -17,6 +17,8 @@ namespace HtmlEditor;
 public partial class MainPage : ContentPage
 {
     private const string PreferencesWorkspaceKey = "workspace.path";
+    private const string EditorVirtualHostName = "app.htmleditor.local";
+    private const string SiteVirtualHostName = "site.htmleditor.local";
     private readonly HtmlFileTreeService _treeService = new();
     private readonly HtmlDocumentService _documentService = new();
     private readonly GitService _gitService = new();
@@ -507,23 +509,28 @@ public partial class MainPage : ContentPage
 
     private async Task LoadHtmlIntoEditorAsync(string html)
     {
-        var baseHref = await GetDocumentBaseHrefAsync();
-        var siteRootHref = await GetSiteRootHrefAsync();
-        var script = $"window.editorHost.loadHtmlBase64('{ToBase64(html)}','{ToBase64(baseHref)}','{ToBase64(siteRootHref)}')";
+        var siteRootDirectory = GetSiteRootDirectoryForCurrentFile();
+        var baseHref = await GetDocumentBaseHrefAsync(siteRootDirectory);
+        var siteRootHref = await GetSiteRootHrefAsync(siteRootDirectory);
+        var localBaseHref = GetLocalDocumentBaseHref();
+        var localSiteRootHref = GetLocalSiteRootHref(siteRootDirectory);
+        var script = $"window.editorHost.loadHtmlBase64('{ToBase64(html)}','{ToBase64(baseHref)}','{ToBase64(siteRootHref)}','{ToBase64(localBaseHref)}','{ToBase64(localSiteRootHref)}')";
         await EditorWebView.EvaluateJavaScriptAsync(script);
     }
 
     private async Task<string> GetEditorShellUrlAsync(string fileName)
     {
 #if WINDOWS
-        await Task.CompletedTask;
-#else
-        await Task.CompletedTask;
+        if (await TryConfigureVirtualHostFolderMappingAsync(EditorVirtualHostName, _editorRoot!))
+        {
+            return $"https://{EditorVirtualHostName}/{Uri.EscapeDataString(fileName)}";
+        }
 #endif
+        await Task.CompletedTask;
         return new Uri(Path.Combine(_editorRoot!, fileName)).AbsoluteUri;
     }
 
-    private async Task<string> GetDocumentBaseHrefAsync()
+    private async Task<string> GetDocumentBaseHrefAsync(string? siteRootDirectory)
     {
         if (string.IsNullOrWhiteSpace(_currentFilePath))
         {
@@ -537,26 +544,66 @@ public partial class MainPage : ContentPage
         }
 
         await Task.CompletedTask;
-        return new Uri(directory + Path.DirectorySeparatorChar).AbsoluteUri;
+#if WINDOWS
+        if (!string.IsNullOrWhiteSpace(siteRootDirectory)
+            && await TryConfigureVirtualHostFolderMappingAsync(SiteVirtualHostName, siteRootDirectory))
+        {
+            return BuildVirtualDirectoryHref(SiteVirtualHostName, siteRootDirectory, directory);
+        }
+#endif
+        return GetLocalDocumentBaseHref();
     }
 
-    private async Task<string> GetSiteRootHrefAsync()
+    private async Task<string> GetSiteRootHrefAsync(string? siteRootDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(siteRootDirectory))
+        {
+            return string.Empty;
+        }
+
+        await Task.CompletedTask;
+#if WINDOWS
+        if (await TryConfigureVirtualHostFolderMappingAsync(SiteVirtualHostName, siteRootDirectory))
+        {
+            return $"https://{SiteVirtualHostName}/";
+        }
+#endif
+        return GetLocalSiteRootHref(siteRootDirectory);
+    }
+
+    private string GetLocalDocumentBaseHref()
     {
         if (string.IsNullOrWhiteSpace(_currentFilePath))
         {
             return string.Empty;
         }
 
+        var directory = Path.GetDirectoryName(_currentFilePath);
+        return string.IsNullOrWhiteSpace(directory)
+            ? string.Empty
+            : new Uri(directory + Path.DirectorySeparatorChar).AbsoluteUri;
+    }
+
+    private static string GetLocalSiteRootHref(string? siteRootDirectory)
+    {
+        return string.IsNullOrWhiteSpace(siteRootDirectory)
+            ? string.Empty
+            : new Uri(siteRootDirectory + Path.DirectorySeparatorChar).AbsoluteUri;
+    }
+
+    private string? GetSiteRootDirectoryForCurrentFile()
+    {
+        if (string.IsNullOrWhiteSpace(_currentFilePath))
+        {
+            return null;
+        }
+
         var currentDirectory = GetCurrentFileDirectory();
         var workspaceDirectory = GetWorkspaceDirectoryForCurrentFile();
-        var rootDirectory = FindNearestStaticSiteRoot(currentDirectory, workspaceDirectory)
+
+        return FindNearestStaticSiteRoot(currentDirectory, workspaceDirectory)
             ?? workspaceDirectory
             ?? currentDirectory;
-
-        await Task.CompletedTask;
-        return string.IsNullOrWhiteSpace(rootDirectory)
-            ? string.Empty
-            : new Uri(rootDirectory + Path.DirectorySeparatorChar).AbsoluteUri;
     }
 
     private string? GetWorkspaceDirectoryForCurrentFile()
@@ -614,6 +661,41 @@ public partial class MainPage : ContentPage
         }
 
         return Path.GetDirectoryName(_currentFilePath) ?? string.Empty;
+    }
+
+    private static string BuildVirtualDirectoryHref(string hostName, string rootDirectory, string directory)
+    {
+        var fullRoot = Path.GetFullPath(rootDirectory);
+        var fullDirectory = Path.GetFullPath(directory);
+        if (!IsSameOrChildPath(fullDirectory, fullRoot))
+        {
+            return $"https://{hostName}/";
+        }
+
+        var relativePath = Path.GetRelativePath(fullRoot, fullDirectory);
+        if (relativePath == ".")
+        {
+            return $"https://{hostName}/";
+        }
+
+        var segments = relativePath
+            .Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries)
+            .Where(segment => segment != ".")
+            .Select(Uri.EscapeDataString);
+        var virtualPath = string.Join("/", segments);
+
+        return string.IsNullOrWhiteSpace(virtualPath)
+            ? $"https://{hostName}/"
+            : $"https://{hostName}/{virtualPath}/";
+    }
+
+    private static bool IsSameOrChildPath(string path, string directory)
+    {
+        var fullPath = Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var fullDirectory = Path.GetFullPath(directory).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+        return string.Equals(fullPath, fullDirectory, StringComparison.OrdinalIgnoreCase)
+            || fullPath.StartsWith(fullDirectory + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
     }
 
     private async Task SaveCurrentFileAsync()
@@ -1056,6 +1138,24 @@ public partial class MainPage : ContentPage
         webView2.CoreWebView2.WebMessageReceived -= OnEditorWebMessageReceived;
         webView2.CoreWebView2.WebMessageReceived += OnEditorWebMessageReceived;
         _webMessageHooked = true;
+    }
+
+    private async Task<bool> TryConfigureVirtualHostFolderMappingAsync(string hostName, string folderPath)
+    {
+        if (EditorWebView.Handler?.PlatformView is not Microsoft.UI.Xaml.Controls.WebView2 webView2
+            || string.IsNullOrWhiteSpace(folderPath)
+            || !Directory.Exists(folderPath))
+        {
+            return false;
+        }
+
+        await webView2.EnsureCoreWebView2Async();
+        webView2.CoreWebView2.SetVirtualHostNameToFolderMapping(
+            hostName,
+            folderPath,
+            CoreWebView2HostResourceAccessKind.Allow);
+
+        return true;
     }
 
     private async void OnEditorWebMessageReceived(CoreWebView2 sender, CoreWebView2WebMessageReceivedEventArgs args)
