@@ -1,4 +1,6 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
+using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using HtmlEditor.Models;
@@ -23,6 +25,7 @@ public partial class MainPage : ContentPage
     private readonly HtmlFileTreeService _treeService = new();
     private readonly HtmlDocumentService _documentService = new();
     private readonly GitService _gitService = new();
+    private readonly AppUpdateService _updateService = new();
     private readonly List<FileTreeNode> _treeRoots = [];
     private bool _editorReady;
     private bool _editorResourcesReady;
@@ -35,6 +38,9 @@ public partial class MainPage : ContentPage
     private string? _workspacePath;
     private string? _pendingHtml;
     private string? _diffBackupLabel;
+#if !DEBUG
+    private bool _startupUpdateChecked;
+#endif
 #if WINDOWS
     private bool _webMessageHooked;
     private bool _webResourceRequestHooked;
@@ -71,6 +77,8 @@ public partial class MainPage : ContentPage
         {
             await LoadWorkspaceAsync(savedWorkspace);
         }
+
+        _ = CheckForUpdatesOnStartupAsync();
     }
 
     private async Task PrepareEditorAsync()
@@ -215,6 +223,15 @@ public partial class MainPage : ContentPage
 
         var result = await _gitService.InitRepositoryAsync(_workspacePath);
         SetStatus(result.Success ? "Git 仓库已初始化" : result.Message);
+    }
+
+    private async void OnCheckUpdateClicked(object? sender, EventArgs e)
+    {
+#if DEBUG
+        await ShowInfoAsync("检查更新", "Debug 模式下不检查版本更新。");
+#else
+        await CheckForUpdatesAsync(showNoUpdateMessage: true);
+#endif
     }
 
     private async void OnFileTreeSelectionChanged(object? sender, SelectionChangedEventArgs e)
@@ -874,6 +891,135 @@ public partial class MainPage : ContentPage
         }
 
         return result.Message;
+    }
+
+    private async Task CheckForUpdatesOnStartupAsync()
+    {
+#if DEBUG
+        await Task.CompletedTask;
+        return;
+#else
+        if (_startupUpdateChecked)
+        {
+            return;
+        }
+
+        _startupUpdateChecked = true;
+        await Task.Delay(TimeSpan.FromSeconds(3));
+        await CheckForUpdatesAsync(showNoUpdateMessage: false);
+#endif
+    }
+
+    private async Task CheckForUpdatesAsync(bool showNoUpdateMessage)
+    {
+        try
+        {
+            var currentVersion = GetCurrentVersion();
+            if (showNoUpdateMessage)
+            {
+                SetStatus("正在检查更新...");
+            }
+
+            var update = await _updateService.CheckForUpdateAsync(currentVersion);
+            if (update is null)
+            {
+                if (showNoUpdateMessage)
+                {
+                    await ShowInfoAsync("已是最新版本", $"当前版本：{currentVersion}");
+                }
+
+                return;
+            }
+
+            await PromptUpdateAsync(update, currentVersion);
+        }
+        catch (Exception ex)
+        {
+            if (showNoUpdateMessage)
+            {
+                await ShowErrorAsync("检查更新失败", ex.Message);
+            }
+        }
+    }
+
+    private async Task PromptUpdateAsync(AppUpdateInfo update, string currentVersion)
+    {
+        var message = $"当前版本：{currentVersion}\n最新版本：{update.Version}";
+        if (!update.HasInstaller)
+        {
+            var openRelease = await DisplayAlertAsync(
+                "发现新版本",
+                $"{message}\n\n该版本没有找到 Windows 安装包，可以打开发布页手动查看。",
+                "打开发布页",
+                "稍后");
+
+            if (openRelease)
+            {
+                OpenUrl(update.ReleaseUrl);
+            }
+
+            return;
+        }
+
+        var download = await DisplayAlertAsync(
+            "发现新版本",
+            $"{message}\n\n是否下载并运行安装程序？",
+            "下载并安装",
+            "稍后");
+        if (!download)
+        {
+            return;
+        }
+
+        var progress = new Progress<double>(value => SetStatus($"正在下载更新 {value:P0}"));
+        var installerPath = await _updateService.DownloadInstallerAsync(update, progress);
+        SetStatus("更新安装包下载完成");
+
+        var runInstaller = await DisplayAlertAsync(
+            "下载完成",
+            $"安装包已下载：\n{installerPath}\n\n是否现在运行安装程序？",
+            "运行安装程序",
+            "稍后");
+        if (runInstaller)
+        {
+            LaunchFile(installerPath);
+        }
+    }
+
+    private static string GetCurrentVersion()
+    {
+        var version = AppInfo.Current.VersionString;
+        if (!string.IsNullOrWhiteSpace(version))
+        {
+            return version;
+        }
+
+        var informationalVersion = Assembly
+            .GetExecutingAssembly()
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+            ?.InformationalVersion;
+
+        return string.IsNullOrWhiteSpace(informationalVersion)
+            ? "0.0.0"
+            : informationalVersion.Split('+')[0];
+    }
+
+    private static void OpenUrl(string url)
+    {
+        Process.Start(new ProcessStartInfo
+        {
+            FileName = url,
+            UseShellExecute = true
+        });
+    }
+
+    private static void LaunchFile(string path)
+    {
+        Process.Start(new ProcessStartInfo
+        {
+            FileName = path,
+            UseShellExecute = true
+        });
     }
 
     private static string JoinStatus(string primary, string? secondary)

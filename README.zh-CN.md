@@ -17,6 +17,7 @@ HtmlEditor 是一个基于 .NET MAUI 的 Windows 桌面 HTML 编辑器。它主�
 - 选择一个历史备份，与当前编辑器内容进行对比。
 - 隐藏或显示左侧文件树。
 - 初始化 Git 仓库；当工作目录是 Git 仓库时，保存后自动提交当前文件。
+- 从 GitHub Releases 检查更新，并在应用内下载最新 Windows 安装包。
 - 使用 Inno Setup 构建 Windows 安装包。
 - 通过 GitHub Actions 自动打包并发布到 GitHub Packages。
 - 将安装包发布到 GitHub Releases 供下载。

@@ -17,6 +17,7 @@ HtmlEditor is a Windows desktop HTML editor built with .NET MAUI. It is designed
 - Compare a selected backup with the current editor content.
 - Hide or show the left file tree panel.
 - Initialize a Git repository and auto-commit changed files after save when the workspace is a Git repo.
+- Check GitHub Releases for updates and download the latest Windows installer from the app.
 - Build a Windows installer with Inno Setup.
 - GitHub Actions workflow for automatic installer packaging and publishing to GitHub Packages.
 - Publish installer downloads to GitHub Releases.

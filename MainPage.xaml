@@ -80,6 +80,9 @@
         <MenuBarItem Text="Git">
             <MenuFlyoutItem Text="初始化仓库" Clicked="OnInitGitClicked" />
         </MenuBarItem>
+        <MenuBarItem Text="帮助">
+            <MenuFlyoutItem Text="检查更新" Clicked="OnCheckUpdateClicked" />
+        </MenuBarItem>
     </ContentPage.MenuBarItems>
 
     <Grid BackgroundColor="#EEF2F6">
