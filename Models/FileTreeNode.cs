@@ -26,15 +26,15 @@ public sealed class FileTreeNode : INotifyPropertyChanged
 
             _isExpanded = value;
             OnPropertyChanged();
-            OnPropertyChanged(nameof(ToggleGlyph));
-            OnPropertyChanged(nameof(IconGlyph));
+            OnPropertyChanged(nameof(IsOpenDirectory));
+            OnPropertyChanged(nameof(IsClosedDirectory));
         }
     }
 
     public bool CanToggle => IsDirectory && Children.Count > 0;
-    public string ToggleGlyph => !CanToggle ? string.Empty : IsExpanded ? "\uE70D" : "\uE76C";
-    public string IconGlyph => IsDirectory ? IsExpanded ? "\uED25" : "\uE8B7" : "\uE7C3";
-    public string IconColor => IsDirectory ? "#B7791F" : "#64748B";
+    public bool IsFile => !IsDirectory;
+    public bool IsOpenDirectory => IsDirectory && IsExpanded;
+    public bool IsClosedDirectory => IsDirectory && !IsExpanded;
     public string Prefix => string.Empty;
     public double Indent => Depth * 18;
     public string TextColor => IsDirectory ? "#20242A" : "#344054";

@@ -7,6 +7,7 @@
   let lastSiteRootHref = "";
   let lastLocalBaseHref = "";
   let lastLocalSiteRootHref = "";
+  let lastPreviewMode = false;
   let lastTitle = "HTML Document";
   let lastHeadExtras = "";
   let lastBodyAttrs = "";
@@ -697,7 +698,7 @@
     }
   }
 
-  function loadHtml(fullHtml, baseHref, siteRootHref, localBaseHref, localSiteRootHref) {
+  function loadHtml(fullHtml, baseHref, siteRootHref, localBaseHref, localSiteRootHref, previewMode) {
     if (editor && editor.isEditing && editor.isEditing()) {
       editor.stop(true);
     }
@@ -707,20 +708,85 @@
     lastSiteRootHref = siteRootHref || lastBaseHref;
     lastLocalBaseHref = localBaseHref || lastBaseHref;
     lastLocalSiteRootHref = localSiteRootHref || lastSiteRootHref || lastLocalBaseHref;
+    lastPreviewMode = Boolean(previewMode);
     const parts = splitHtml(lastFullHtml);
     lastTitle = parts.title;
     lastHeadExtras = parts.headExtras;
     lastBodyAttrs = parts.bodyAttrs;
     lastHtmlAttrs = parts.htmlAttrs;
 
+    if (lastPreviewMode) {
+      applyDocumentHead(parts, false, false);
+      renderPreview(lastFullHtml);
+      return;
+    }
+
+    hidePreview();
     applyDocumentHead(parts, false);
     const editable = document.getElementById("document-body");
     editable.innerHTML = parts.body || "";
     normalizeEditableDom(editable);
     setEditorStyle(parts.css || "");
-    applyDocumentHead(parts, true);
+    applyDocumentHead(parts, true, false);
 
     restartEditing();
+  }
+
+  function renderPreview(fullHtml) {
+    const shell = document.getElementById("document-shell");
+    if (shell) {
+      shell.style.display = "none";
+      shell.setAttribute("aria-hidden", "true");
+    }
+
+    const frame = ensurePreviewFrame();
+    frame.srcdoc = "";
+    frame.srcdoc = buildPreviewHtml(fullHtml);
+  }
+
+  function hidePreview() {
+    const frame = document.getElementById("html-editor-preview-frame");
+    if (frame) {
+      frame.remove();
+    }
+
+    const shell = document.getElementById("document-shell");
+    if (shell) {
+      shell.style.display = "";
+      shell.removeAttribute("aria-hidden");
+    }
+  }
+
+  function ensurePreviewFrame() {
+    let frame = document.getElementById("html-editor-preview-frame");
+    if (frame) {
+      return frame;
+    }
+
+    frame = document.createElement("iframe");
+    frame.id = "html-editor-preview-frame";
+    frame.title = "HTML preview";
+    frame.setAttribute("data-html-editor-host", "true");
+    frame.style.border = "0";
+    frame.style.display = "block";
+    frame.style.width = "100%";
+    frame.style.height = "100vh";
+    frame.style.background = "#fff";
+    document.body.appendChild(frame);
+    return frame;
+  }
+
+  function buildPreviewHtml(fullHtml) {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(fullHtml || "", "text/html");
+    if (lastBaseHref && doc.head) {
+      const base = doc.createElement("base");
+      base.href = lastBaseHref;
+      base.setAttribute("data-html-editor-host", "true");
+      doc.head.prepend(base);
+    }
+
+    return `<!doctype html>\n${doc.documentElement.outerHTML}`;
   }
 
   function restartEditing() {
@@ -735,7 +801,7 @@
     editable.setAttribute("data-editor-active", "true");
   }
 
-  function applyDocumentHead(parts, executeScripts) {
+  function applyDocumentHead(parts, executeScripts, allowAllScripts) {
     document.head.querySelectorAll("[data-html-editor-host]").forEach((element) => element.remove());
 
     if (lastBaseHref) {
@@ -752,12 +818,12 @@
     const template = document.createElement("template");
     template.innerHTML = parts.headExtras;
     Array.from(template.content.children).forEach((sourceElement) => {
-      const element = createPreviewHeadElement(document, sourceElement, executeScripts);
+      const element = createPreviewHeadElement(document, sourceElement, executeScripts, allowAllScripts);
       if (!element) {
         return;
       }
 
-      if (isTailwindCdnScript(sourceElement)) {
+      if (isTailwindCdnScript(sourceElement, document)) {
         normalizeTailwindPreviewConfig(document);
       }
 
@@ -765,14 +831,16 @@
     });
   }
 
-  function createPreviewHeadElement(targetDocument, sourceElement, executeScripts) {
+  function createPreviewHeadElement(targetDocument, sourceElement, executeScripts, allowAllScripts) {
     const tag = sourceElement.tagName.toLowerCase();
     if (tag !== "link" && tag !== "style" && tag !== "script") {
       return null;
     }
 
-    if (tag === "script" && !executeScripts) {
-      return null;
+    if (tag === "script") {
+      if (!executeScripts || (!allowAllScripts && !isAllowedStyleScript(sourceElement, targetDocument))) {
+        return null;
+      }
     }
 
     const element = targetDocument.createElement(tag);
@@ -793,7 +861,19 @@
     return element;
   }
 
-  function isTailwindCdnScript(element) {
+  function isAllowedStyleScript(element, targetDocument) {
+    return isTailwindConfigScript(element) || isTailwindCdnScript(element, targetDocument);
+  }
+
+  function isTailwindConfigScript(element) {
+    if (element.tagName.toLowerCase() !== "script" || element.hasAttribute("src")) {
+      return false;
+    }
+
+    return /(?:window\.)?tailwind(?:\.config)?\s*=/.test(element.textContent || "");
+  }
+
+  function isTailwindCdnScript(element, targetDocument) {
     if (element.tagName.toLowerCase() !== "script") {
       return false;
     }
@@ -804,7 +884,7 @@
     }
 
     try {
-      return new URL(src, document.baseURI).hostname.toLowerCase() === "cdn.tailwindcss.com";
+      return new URL(src, targetDocument.baseURI).hostname.toLowerCase() === "cdn.tailwindcss.com";
     } catch {
       return src.toLowerCase().includes("cdn.tailwindcss.com");
     }
@@ -1389,6 +1469,10 @@
   }
 
   function applyTool(toolName) {
+    if (lastPreviewMode) {
+      return false;
+    }
+
     const tool = ContentTools.ToolShelf.fetch(toolName);
     if (!tool.requiresElement) {
       if (!tool.canApply(null, null)) {
@@ -1434,23 +1518,36 @@
   }
 
   window.editorHost = {
-    loadHtmlBase64(base64, baseHrefBase64, siteRootHrefBase64, localBaseHrefBase64, localSiteRootHrefBase64) {
+    loadHtmlBase64(base64, baseHrefBase64, siteRootHrefBase64, localBaseHrefBase64, localSiteRootHrefBase64, previewMode) {
       loadHtml(
         fromBase64(base64),
         fromBase64(baseHrefBase64),
         fromBase64(siteRootHrefBase64),
         fromBase64(localBaseHrefBase64),
-        fromBase64(localSiteRootHrefBase64)
+        fromBase64(localSiteRootHrefBase64),
+        Boolean(previewMode)
       );
       return true;
     },
     getHtmlBase64() {
+      if (lastPreviewMode) {
+        return toBase64(lastFullHtml);
+      }
+
       return toBase64(buildHtml());
     },
     undo() {
+      if (lastPreviewMode) {
+        return false;
+      }
+
       return applyTool("undo");
     },
     redo() {
+      if (lastPreviewMode) {
+        return false;
+      }
+
       return applyTool("redo");
     },
     applyTool(toolName) {
@@ -1473,7 +1570,7 @@
       };
     },
     reload() {
-      loadHtml(lastFullHtml, lastBaseHref, lastSiteRootHref, lastLocalBaseHref, lastLocalSiteRootHref);
+      loadHtml(lastFullHtml, lastBaseHref, lastSiteRootHref, lastLocalBaseHref, lastLocalSiteRootHref, lastPreviewMode);
       return true;
     },
     isReady() {

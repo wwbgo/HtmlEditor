@@ -302,6 +302,21 @@ public partial class MainPage : ContentPage
         await LoadFileAsync(_currentFilePath);
     }
 
+    private async void OnPreviewChanged(object? sender, CheckedChangedEventArgs e)
+    {
+        if (!_editorReady)
+        {
+            UpdateModeChrome();
+            return;
+        }
+
+        UpdateModeChrome();
+
+        var html = await GetEditorHtmlAsync();
+        await LoadHtmlIntoEditorAsync(html);
+        SetStatus(e.Value ? "已进入预览模式" : "已返回编辑模式");
+    }
+
     private void OnToggleSidebarClicked(object? sender, EventArgs e)
     {
         _sidebarVisible = !_sidebarVisible;
@@ -415,7 +430,6 @@ public partial class MainPage : ContentPage
             CloseDiffPanel();
             var html = await _documentService.ReadAsync(path);
             _currentFilePath = path;
-            CurrentFileLabel.Text = path;
 
             if (_editorReady)
             {
@@ -518,7 +532,8 @@ public partial class MainPage : ContentPage
         var siteRootHref = await GetSiteRootHrefAsync(siteRootDirectory);
         var localBaseHref = GetLocalDocumentBaseHref();
         var localSiteRootHref = GetLocalSiteRootHref(siteRootDirectory);
-        var script = $"window.editorHost.loadHtmlBase64('{ToBase64(html)}','{ToBase64(baseHref)}','{ToBase64(siteRootHref)}','{ToBase64(localBaseHref)}','{ToBase64(localSiteRootHref)}')";
+        var previewMode = PreviewCheckBox.IsChecked ? "true" : "false";
+        var script = $"window.editorHost.loadHtmlBase64('{ToBase64(html)}','{ToBase64(baseHref)}','{ToBase64(siteRootHref)}','{ToBase64(localBaseHref)}','{ToBase64(localSiteRootHref)}',{previewMode})";
         await EditorWebView.EvaluateJavaScriptAsync(script);
     }
 
@@ -737,7 +752,6 @@ public partial class MainPage : ContentPage
             var html = await GetEditorHtmlAsync();
             await _documentService.SaveAsync(path, html, BackupCheckBox.IsChecked);
             _currentFilePath = path;
-            CurrentFileLabel.Text = path;
 
             var directory = Path.GetDirectoryName(path);
             if (!string.IsNullOrWhiteSpace(directory))
@@ -1042,9 +1056,12 @@ public partial class MainPage : ContentPage
 
     private void UpdateModeChrome()
     {
+        var isPreview = PreviewCheckBox.IsChecked;
         var isContentTools = _editorMode == EditorMode.ContentTools;
-        ContentToolsToolbar.IsVisible = isContentTools;
-        DeleteButton.IsVisible = isContentTools;
+        ContentToolsToolbar.IsVisible = isContentTools && !isPreview;
+        DeleteButton.IsVisible = isContentTools && !isPreview;
+        UndoButton.IsEnabled = !isPreview;
+        RedoButton.IsEnabled = !isPreview;
     }
 
     private void UpdateSidebarChrome()

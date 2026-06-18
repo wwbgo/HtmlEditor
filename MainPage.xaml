@@ -2,6 +2,7 @@
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              xmlns:models="clr-namespace:HtmlEditor.Models"
+             xmlns:shapes="clr-namespace:Microsoft.Maui.Controls.Shapes;assembly=Microsoft.Maui.Controls"
              x:Class="HtmlEditor.MainPage">
 
     <ContentPage.Resources>
@@ -162,8 +163,8 @@
                     <CollectionView.ItemTemplate>
                         <DataTemplate x:DataType="models:FileTreeNode">
                             <Grid Padding="0,1"
-                                  ColumnDefinitions="Auto,24,22,*"
-                                  ColumnSpacing="4"
+                                  ColumnDefinitions="Auto,22,*"
+                                  ColumnSpacing="6"
                                   HeightRequest="30"
                                   VerticalOptions="Center">
                                 <VisualStateManager.VisualStateGroups>
@@ -182,26 +183,38 @@
                                 </VisualStateManager.VisualStateGroups>
                                 <BoxView WidthRequest="{Binding Indent}"
                                          BackgroundColor="Transparent" />
-                                <Label Grid.Column="1"
-                                       Text="{Binding ToggleGlyph}"
-                                       FontFamily="Segoe MDL2 Assets"
-                                       FontSize="11"
-                                       TextColor="#667085"
-                                       WidthRequest="22"
-                                       HeightRequest="22"
-                                       HorizontalTextAlignment="Center"
-                                       VerticalTextAlignment="Center"
-                                       HorizontalOptions="Center"
-                                       VerticalOptions="Center" />
+                                <Grid Grid.Column="1"
+                                      WidthRequest="22"
+                                      HeightRequest="22"
+                                      VerticalOptions="Center">
+                                    <shapes:Path Data="M2,5 L7,5 L8.5,7 L18,7 L18,16 L2,16 Z"
+                                                 Fill="#E8C15A"
+                                                 Aspect="Uniform"
+                                                 WidthRequest="16"
+                                                 HeightRequest="16"
+                                                 HorizontalOptions="Start"
+                                                 VerticalOptions="Center"
+                                                 IsVisible="{Binding IsClosedDirectory}" />
+                                    <shapes:Path Data="M2,6 L7,6 L8.5,8 L18,8 L16,16 L2,16 Z"
+                                                 Fill="#E8C15A"
+                                                 Aspect="Uniform"
+                                                 WidthRequest="16"
+                                                 HeightRequest="16"
+                                                 HorizontalOptions="Start"
+                                                 VerticalOptions="Center"
+                                                 IsVisible="{Binding IsOpenDirectory}" />
+                                    <shapes:Path Data="M4,2 L11,2 L15,6 L15,16 L4,16 Z M11,2 L11,6 L15,6"
+                                                 Fill="Transparent"
+                                                 Stroke="#6B7280"
+                                                 StrokeThickness="1.4"
+                                                 Aspect="Uniform"
+                                                 WidthRequest="16"
+                                                 HeightRequest="16"
+                                                 HorizontalOptions="Start"
+                                                 VerticalOptions="Center"
+                                                 IsVisible="{Binding IsFile}" />
+                                </Grid>
                                 <Label Grid.Column="2"
-                                       Text="{Binding IconGlyph}"
-                                       FontFamily="Segoe MDL2 Assets"
-                                       FontSize="15"
-                                       TextColor="{Binding IconColor}"
-                                       HorizontalTextAlignment="Center"
-                                       VerticalTextAlignment="Center"
-                                       VerticalOptions="Center" />
-                                <Label Grid.Column="3"
                                        Text="{Binding DisplayName}"
                                        FontSize="13"
                                        TextColor="{Binding TextColor}"
@@ -222,7 +235,7 @@
                   RowDefinitions="Auto,Auto,*"
                   BackgroundColor="#E9EEF3">
                 <Grid Padding="10,8"
-                      ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,*"
+                      ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
                       ColumnSpacing="8"
                       BackgroundColor="#FAFBFC">
                     <Button Text="隐藏左侧"
@@ -280,18 +293,27 @@
                                VerticalTextAlignment="Center"
                                TextColor="#333942" />
                     </HorizontalStackLayout>
-                    <Button Grid.Column="9"
+                    <HorizontalStackLayout Grid.Column="9"
+                                           Spacing="0"
+                                           VerticalOptions="Center">
+                        <CheckBox x:Name="PreviewCheckBox"
+                                  WidthRequest="22"
+                                  HeightRequest="22"
+                                  IsChecked="False"
+                                  Scale="0.82"
+                                  VerticalOptions="Center"
+                                  CheckedChanged="OnPreviewChanged" />
+                        <Label Text="预览"
+                               Margin="-2,0,0,0"
+                               VerticalOptions="Center"
+                               VerticalTextAlignment="Center"
+                               TextColor="#333942" />
+                    </HorizontalStackLayout>
+                    <Button Grid.Column="10"
                             Text="重新加载"
                             x:Name="ReloadButton"
                             Style="{StaticResource CommandButton}"
                             Clicked="OnReloadClicked" />
-                    <Label Grid.Column="10"
-                           x:Name="CurrentFileLabel"
-                           Text="未打开文件"
-                           FontSize="12"
-                           TextColor="#667085"
-                           VerticalOptions="Center"
-                           LineBreakMode="TailTruncation" />
                 </Grid>
 
                 <ScrollView Grid.Row="1"

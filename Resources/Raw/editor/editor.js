@@ -7,6 +7,7 @@
   let lastSiteRootHref = "";
   let lastLocalBaseHref = "";
   let lastLocalSiteRootHref = "";
+  let lastPreviewMode = false;
   let lastTitle = "HTML Document";
   let lastHeadExtras = "";
   let lastBodyScripts = "";
@@ -379,26 +380,91 @@
     return template.innerHTML;
   }
 
-  function loadHtml(fullHtml, baseHref, siteRootHref, localBaseHref, localSiteRootHref) {
+  function loadHtml(fullHtml, baseHref, siteRootHref, localBaseHref, localSiteRootHref, previewMode) {
     lastFullHtml = fullHtml || "";
     lastBaseHref = baseHref || "";
     lastSiteRootHref = siteRootHref || lastBaseHref;
     lastLocalBaseHref = localBaseHref || lastBaseHref;
     lastLocalSiteRootHref = localSiteRootHref || lastSiteRootHref || lastLocalBaseHref;
+    lastPreviewMode = Boolean(previewMode);
     const parts = splitHtml(lastFullHtml);
     lastTitle = parts.title;
     lastHeadExtras = parts.headExtras;
     lastBodyScripts = parts.bodyScripts;
     lastBodyAttrs = parts.bodyAttrs;
     lastHtmlAttrs = parts.htmlAttrs;
+
+    if (lastPreviewMode) {
+      renderPreview(lastFullHtml);
+      return;
+    }
+
+    hidePreview();
     applyCanvasHead(parts, false);
     editor.setComponents(parts.body || "");
     editor.setStyle(parts.css || "");
-    setTimeout(() => applyCanvasHead(parts, true), 0);
+    setTimeout(() => applyCanvasHead(parts, true, false), 0);
     editor.UndoManager.clear();
   }
 
-  function applyCanvasHead(parts, executeScripts) {
+  function renderPreview(fullHtml) {
+    const editorElement = document.getElementById("editor");
+    if (editorElement) {
+      editorElement.style.display = "none";
+      editorElement.setAttribute("aria-hidden", "true");
+    }
+
+    const frame = ensurePreviewFrame();
+    frame.srcdoc = "";
+    frame.srcdoc = buildPreviewHtml(fullHtml);
+  }
+
+  function hidePreview() {
+    const frame = document.getElementById("html-editor-preview-frame");
+    if (frame) {
+      frame.remove();
+    }
+
+    const editorElement = document.getElementById("editor");
+    if (editorElement) {
+      editorElement.style.display = "";
+      editorElement.removeAttribute("aria-hidden");
+    }
+  }
+
+  function ensurePreviewFrame() {
+    let frame = document.getElementById("html-editor-preview-frame");
+    if (frame) {
+      return frame;
+    }
+
+    frame = document.createElement("iframe");
+    frame.id = "html-editor-preview-frame";
+    frame.title = "HTML preview";
+    frame.setAttribute("data-html-editor-host", "true");
+    frame.style.border = "0";
+    frame.style.display = "block";
+    frame.style.width = "100%";
+    frame.style.height = "100vh";
+    frame.style.background = "#fff";
+    document.body.appendChild(frame);
+    return frame;
+  }
+
+  function buildPreviewHtml(fullHtml) {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(fullHtml || "", "text/html");
+    if (lastBaseHref && doc.head) {
+      const base = doc.createElement("base");
+      base.href = lastBaseHref;
+      base.setAttribute("data-html-editor-host", "true");
+      doc.head.prepend(base);
+    }
+
+    return `<!doctype html>\n${doc.documentElement.outerHTML}`;
+  }
+
+  function applyCanvasHead(parts, executeScripts, allowAllScripts) {
     const canvasDocument = editor.Canvas.getDocument();
     if (!canvasDocument || !canvasDocument.head) {
       return;
@@ -420,7 +486,7 @@
     const template = document.createElement("template");
     template.innerHTML = parts.headExtras;
     Array.from(template.content.children).forEach((sourceElement) => {
-      const element = createPreviewHeadElement(canvasDocument, sourceElement, executeScripts);
+      const element = createPreviewHeadElement(canvasDocument, sourceElement, executeScripts, allowAllScripts);
       if (!element) {
         return;
       }
@@ -433,14 +499,16 @@
     });
   }
 
-  function createPreviewHeadElement(targetDocument, sourceElement, executeScripts) {
+  function createPreviewHeadElement(targetDocument, sourceElement, executeScripts, allowAllScripts) {
     const tag = sourceElement.tagName.toLowerCase();
     if (tag !== "link" && tag !== "style" && tag !== "script") {
       return null;
     }
 
-    if (tag === "script" && !executeScripts) {
-      return null;
+    if (tag === "script") {
+      if (!executeScripts || (!allowAllScripts && !isAllowedStyleScript(sourceElement, targetDocument))) {
+        return null;
+      }
     }
 
     const element = targetDocument.createElement(tag);
@@ -459,6 +527,18 @@
     }
 
     return element;
+  }
+
+  function isAllowedStyleScript(element, targetDocument) {
+    return isTailwindConfigScript(element) || isTailwindCdnScript(element, targetDocument);
+  }
+
+  function isTailwindConfigScript(element) {
+    if (element.tagName.toLowerCase() !== "script" || element.hasAttribute("src")) {
+      return false;
+    }
+
+    return /(?:window\.)?tailwind(?:\.config)?\s*=/.test(element.textContent || "");
   }
 
   function isTailwindCdnScript(element, targetDocument) {
@@ -620,29 +700,42 @@
   }
 
   window.editorHost = {
-    loadHtmlBase64(base64, baseHrefBase64, siteRootHrefBase64, localBaseHrefBase64, localSiteRootHrefBase64) {
+    loadHtmlBase64(base64, baseHrefBase64, siteRootHrefBase64, localBaseHrefBase64, localSiteRootHrefBase64, previewMode) {
       loadHtml(
         fromBase64(base64),
         fromBase64(baseHrefBase64),
         fromBase64(siteRootHrefBase64),
         fromBase64(localBaseHrefBase64),
-        fromBase64(localSiteRootHrefBase64)
+        fromBase64(localSiteRootHrefBase64),
+        Boolean(previewMode)
       );
       return true;
     },
     getHtmlBase64() {
+      if (lastPreviewMode) {
+        return toBase64(lastFullHtml);
+      }
+
       return toBase64(buildHtml());
     },
     undo() {
+      if (lastPreviewMode) {
+        return false;
+      }
+
       editor.UndoManager.undo();
       return true;
     },
     redo() {
+      if (lastPreviewMode) {
+        return false;
+      }
+
       editor.UndoManager.redo();
       return true;
     },
     reload() {
-      loadHtml(lastFullHtml, lastBaseHref, lastSiteRootHref, lastLocalBaseHref, lastLocalSiteRootHref);
+      loadHtml(lastFullHtml, lastBaseHref, lastSiteRootHref, lastLocalBaseHref, lastLocalSiteRootHref, lastPreviewMode);
       return true;
     },
     isReady() {
