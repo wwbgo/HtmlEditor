@@ -19,6 +19,7 @@ HtmlEditor is a Windows desktop HTML editor built with .NET MAUI. It is designed
 - Initialize a Git repository and auto-commit changed files after save when the workspace is a Git repo.
 - Build a Windows installer with Inno Setup.
 - GitHub Actions workflow for automatic installer packaging and publishing to GitHub Packages.
+- Publish installer downloads to GitHub Releases.
 
 ## Requirements
 
@@ -83,8 +84,29 @@ It performs these steps:
 - Installs the .NET MAUI workload.
 - Installs Inno Setup.
 - Builds the Windows installer.
-- Uploads the installer as a GitHub Actions artifact.
+- Uploads the installer as a GitHub Actions artifact for the workflow run.
+- Publishes installer downloads to GitHub Releases.
 - Publishes the installer to GitHub Packages through GHCR as an OCI artifact.
+
+Actions artifact URLs are not intended as stable public download links and may require GitHub access. Use the release assets for installer downloads:
+
+- `main` builds update the `latest-build` prerelease:
+
+```text
+https://github.com/wwbgo/HtmlEditor/releases/tag/latest-build
+```
+
+Stable latest installer URL:
+
+```text
+https://github.com/wwbgo/HtmlEditor/releases/download/latest-build/HtmlEditor-Setup-latest-win-x64.exe
+```
+
+- `v*` tags create or update the matching release, for example:
+
+```text
+https://github.com/wwbgo/HtmlEditor/releases/tag/v1.0.0
+```
 
 Package name:
 

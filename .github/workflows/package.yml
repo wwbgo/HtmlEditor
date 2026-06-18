@@ -92,7 +92,7 @@ jobs:
           if-no-files-found: error
 
       - name: Publish GitHub Release asset
-        if: github.ref_type == 'tag'
+        if: (github.ref_type == 'tag' && github.ref_name != 'latest-build') || (github.ref_type == 'branch' && github.ref_name == 'main')
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -102,23 +102,66 @@ jobs:
             throw "Installer was not found in artifacts/installer."
           }
 
-          $tag = "${{ github.ref_name }}"
+          $isTagBuild = "${{ github.ref_type }}" -eq "tag"
+          $sha = "${{ github.sha }}"
           $version = "${{ steps.version.outputs.version }}"
           $repository = "${{ github.repository }}"
-          $releaseTitle = "HtmlEditor $tag"
-          $releaseNotes = "Windows installer built by GitHub Actions.`n`nVersion: $version"
+
+          if ($isTagBuild) {
+            $tag = "${{ github.ref_name }}"
+            $releaseTitle = "HtmlEditor $tag"
+            $releaseNotes = "Windows installer built by GitHub Actions.`n`nVersion: $version"
+            $releaseInstaller = $installer.FullName
+          }
+          else {
+            $tag = "latest-build"
+            $releaseTitle = "HtmlEditor Latest Build"
+            $runUrl = "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            $releaseNotes = "Latest Windows installer built from main.`n`nVersion: $version`nCommit: $sha`nRun: $runUrl"
+            $releaseDir = Join-Path $env:RUNNER_TEMP "release-assets"
+            New-Item -ItemType Directory -Force -Path $releaseDir | Out-Null
+            $releaseInstaller = Join-Path $releaseDir "HtmlEditor-Setup-latest-win-x64.exe"
+            Copy-Item -LiteralPath $installer.FullName -Destination $releaseInstaller -Force
+
+            git tag -f $tag $sha
+            git push origin "refs/tags/$tag" --force
+          }
 
           gh release view $tag --repo $repository *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag `
-              --repo $repository `
-              --title $releaseTitle `
-              --notes $releaseNotes
+            if ($isTagBuild) {
+              gh release create $tag $releaseInstaller `
+                --repo $repository `
+                --title $releaseTitle `
+                --notes $releaseNotes
+            }
+            else {
+              gh release create $tag $releaseInstaller `
+                --repo $repository `
+                --title $releaseTitle `
+                --notes $releaseNotes `
+                --prerelease
+            }
           }
+          else {
+            if ($isTagBuild) {
+              gh release edit $tag `
+                --repo $repository `
+                --title $releaseTitle `
+                --notes $releaseNotes
+            }
+            else {
+              gh release edit $tag `
+                --repo $repository `
+                --title $releaseTitle `
+                --notes $releaseNotes `
+                --prerelease
+            }
 
-          gh release upload $tag $installer.FullName `
-            --repo $repository `
-            --clobber
+            gh release upload $tag $releaseInstaller `
+              --repo $repository `
+              --clobber
+          }
 
       - name: Install ORAS
         uses: oras-project/setup-oras@v1
