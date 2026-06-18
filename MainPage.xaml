@@ -82,8 +82,14 @@
     </ContentPage.MenuBarItems>
 
     <Grid BackgroundColor="#EEF2F6">
-        <Grid ColumnDefinitions="320,1,*">
+        <Grid x:Name="MainLayoutGrid">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition x:Name="SidebarColumn" Width="320" />
+                <ColumnDefinition x:Name="SidebarSeparatorColumn" Width="1" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
             <Grid Grid.Column="0"
+                  x:Name="SidebarPanel"
                   RowDefinitions="Auto,Auto,*"
                   BackgroundColor="#F8FAFC"
                   Padding="12"
@@ -208,46 +214,58 @@
                 </CollectionView>
             </Grid>
 
-            <BoxView Grid.Column="1" Color="#D7DEE5" />
+            <BoxView Grid.Column="1"
+                     x:Name="SidebarSeparator"
+                     Color="#D7DEE5" />
 
             <Grid Grid.Column="2"
                   RowDefinitions="Auto,Auto,*"
                   BackgroundColor="#E9EEF3">
                 <Grid Padding="10,8"
-                      ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,*"
+                      ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,*"
                       ColumnSpacing="8"
                       BackgroundColor="#FAFBFC">
-                    <Button Text="撤销"
+                    <Button Text="隐藏左侧"
+                            x:Name="ToggleSidebarButton"
+                            Style="{StaticResource CommandButton}"
+                            Clicked="OnToggleSidebarClicked" />
+                    <Button Grid.Column="1"
+                            Text="撤销"
                             x:Name="UndoButton"
                             Style="{StaticResource CommandButton}"
                             Clicked="OnUndoClicked" />
-                    <Button Grid.Column="1"
+                    <Button Grid.Column="2"
                             Text="重做"
                             x:Name="RedoButton"
                             Style="{StaticResource CommandButton}"
                             Clicked="OnRedoClicked" />
-                    <Button Grid.Column="2"
+                    <Button Grid.Column="3"
                             Text="删除"
                             x:Name="DeleteButton"
                             Style="{StaticResource CommandButton}"
                             CommandParameter="remove"
                             Clicked="OnContentToolClicked" />
-                    <Button Grid.Column="3"
+                    <Button Grid.Column="4"
                             Text="保存"
                             x:Name="SaveButton"
                             Style="{StaticResource PrimaryCommandButton}"
                             Clicked="OnSaveClicked" />
-                    <Button Grid.Column="4"
+                    <Button Grid.Column="5"
                             Text="另存为"
                             x:Name="SaveAsButton"
                             Style="{StaticResource CommandButton}"
                             Clicked="OnSaveAsClicked" />
-                    <Button Grid.Column="5"
+                    <Button Grid.Column="6"
                             Text="还原备份"
                             x:Name="RestoreBackupButton"
                             Style="{StaticResource CommandButton}"
                             Clicked="OnRestoreBackupClicked" />
-                    <HorizontalStackLayout Grid.Column="6"
+                    <Button Grid.Column="7"
+                            Text="修改对比"
+                            x:Name="DiffButton"
+                            Style="{StaticResource CommandButton}"
+                            Clicked="OnShowDiffClicked" />
+                    <HorizontalStackLayout Grid.Column="8"
                                            Spacing="0"
                                            VerticalOptions="Center">
                         <CheckBox x:Name="BackupCheckBox"
@@ -262,12 +280,12 @@
                                VerticalTextAlignment="Center"
                                TextColor="#333942" />
                     </HorizontalStackLayout>
-                    <Button Grid.Column="7"
+                    <Button Grid.Column="9"
                             Text="重新加载"
                             x:Name="ReloadButton"
                             Style="{StaticResource CommandButton}"
                             Clicked="OnReloadClicked" />
-                    <Label Grid.Column="8"
+                    <Label Grid.Column="10"
                            x:Name="CurrentFileLabel"
                            Text="未打开文件"
                            FontSize="12"
@@ -320,6 +338,94 @@
                 <WebView Grid.Row="2"
                          x:Name="EditorWebView"
                          Navigated="OnEditorNavigated" />
+
+                <Grid Grid.Row="2"
+                      x:Name="DiffPanel"
+                      IsVisible="False"
+                      RowDefinitions="Auto,*"
+                      BackgroundColor="#FFFFFF">
+                    <Grid Padding="10,8"
+                          ColumnDefinitions="*,Auto,Auto"
+                          ColumnSpacing="10"
+                          BackgroundColor="#F6F8FA">
+                        <Label x:Name="DiffSummaryLabel"
+                               Text="修改对比"
+                               FontSize="12"
+                               TextColor="#333942"
+                               VerticalOptions="Center"
+                               LineBreakMode="TailTruncation" />
+                        <HorizontalStackLayout Grid.Column="1"
+                                               Spacing="0"
+                                               VerticalOptions="Center">
+                            <CheckBox x:Name="ShowFullDiffCheckBox"
+                                      WidthRequest="22"
+                                      HeightRequest="22"
+                                      Scale="0.82"
+                                      VerticalOptions="Center"
+                                      CheckedChanged="OnShowFullDiffChanged" />
+                            <Label Text="显示全部"
+                                   Margin="-2,0,0,0"
+                                   VerticalOptions="Center"
+                                   VerticalTextAlignment="Center"
+                                   TextColor="#333942" />
+                        </HorizontalStackLayout>
+                        <Button Grid.Column="2"
+                                Text="关闭"
+                                Style="{StaticResource CommandButton}"
+                                Clicked="OnCloseDiffClicked" />
+                    </Grid>
+
+                    <CollectionView Grid.Row="1"
+                                    x:Name="DiffCollectionView"
+                                    ItemsSource="{Binding DiffLines}">
+                        <CollectionView.EmptyView>
+                            <Grid Padding="16">
+                                <Label Text="没有差异"
+                                       TextColor="#667085"
+                                       HorizontalOptions="Center"
+                                       VerticalOptions="Center" />
+                            </Grid>
+                        </CollectionView.EmptyView>
+                        <CollectionView.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Padding="6,4"
+                                      ColumnDefinitions="28,58,58,*,*"
+                                      ColumnSpacing="8"
+                                      BackgroundColor="{Binding BackgroundColor}">
+                                    <Label Text="{Binding Symbol}"
+                                           FontFamily="Consolas"
+                                           FontSize="12"
+                                           TextColor="{Binding TextColor}"
+                                           HorizontalTextAlignment="Center" />
+                                    <Label Grid.Column="1"
+                                           Text="{Binding OldLineNumber}"
+                                           FontFamily="Consolas"
+                                           FontSize="12"
+                                           TextColor="#667085"
+                                           HorizontalTextAlignment="End" />
+                                    <Label Grid.Column="2"
+                                           Text="{Binding NewLineNumber}"
+                                           FontFamily="Consolas"
+                                           FontSize="12"
+                                           TextColor="#667085"
+                                           HorizontalTextAlignment="End" />
+                                    <Label Grid.Column="3"
+                                           Text="{Binding OldText}"
+                                           FontFamily="Consolas"
+                                           FontSize="12"
+                                           TextColor="{Binding TextColor}"
+                                           LineBreakMode="TailTruncation" />
+                                    <Label Grid.Column="4"
+                                           Text="{Binding NewText}"
+                                           FontFamily="Consolas"
+                                           FontSize="12"
+                                           TextColor="{Binding TextColor}"
+                                           LineBreakMode="TailTruncation" />
+                                </Grid>
+                            </DataTemplate>
+                        </CollectionView.ItemTemplate>
+                    </CollectionView>
+                </Grid>
             </Grid>
         </Grid>
     </Grid>

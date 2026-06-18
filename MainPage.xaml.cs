@@ -24,15 +24,20 @@ public partial class MainPage : ContentPage
     private bool _editorReady;
     private bool _editorResourcesReady;
     private EditorMode _editorMode = EditorMode.ContentTools;
+    private bool _sidebarVisible = true;
+    private bool _showFullDiff;
+    private readonly List<FileDiffLine> _currentDiffLines = [];
     private string? _editorRoot;
     private string? _currentFilePath;
     private string? _workspacePath;
     private string? _pendingHtml;
+    private string? _diffBackupLabel;
 #if WINDOWS
     private bool _webMessageHooked;
 #endif
 
     public ObservableCollection<FileTreeNode> VisibleTreeItems { get; } = [];
+    public ObservableCollection<FileDiffLine> DiffLines { get; } = [];
 
     public MainPage()
     {
@@ -40,6 +45,7 @@ public partial class MainPage : ContentPage
         BindingContext = this;
         EditorModePicker.SelectedIndex = 1;
         UpdateModeChrome();
+        UpdateSidebarChrome();
         EditorWebView.Source = new UrlWebViewSource { Url = "about:blank" };
         Loaded += OnLoaded;
     }
@@ -263,6 +269,22 @@ public partial class MainPage : ContentPage
         await RestoreBackupAsync();
     }
 
+    private async void OnShowDiffClicked(object? sender, EventArgs e)
+    {
+        await ShowBackupDiffAsync();
+    }
+
+    private void OnShowFullDiffChanged(object? sender, CheckedChangedEventArgs e)
+    {
+        _showFullDiff = e.Value;
+        RenderDiffLines();
+    }
+
+    private void OnCloseDiffClicked(object? sender, EventArgs e)
+    {
+        CloseDiffPanel();
+    }
+
     private async void OnReloadClicked(object? sender, EventArgs e)
     {
         if (string.IsNullOrWhiteSpace(_currentFilePath))
@@ -272,6 +294,12 @@ public partial class MainPage : ContentPage
         }
 
         await LoadFileAsync(_currentFilePath);
+    }
+
+    private void OnToggleSidebarClicked(object? sender, EventArgs e)
+    {
+        _sidebarVisible = !_sidebarVisible;
+        UpdateSidebarChrome();
     }
 
     private async void OnContentToolClicked(object? sender, EventArgs e)
@@ -378,6 +406,7 @@ public partial class MainPage : ContentPage
     {
         try
         {
+            CloseDiffPanel();
             var html = await _documentService.ReadAsync(path);
             _currentFilePath = path;
             CurrentFileLabel.Text = path;
@@ -397,6 +426,83 @@ public partial class MainPage : ContentPage
         {
             await ShowErrorAsync("打开文件失败", ex.Message);
         }
+    }
+
+    private async Task ShowBackupDiffAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_currentFilePath))
+        {
+            SetStatus("请先打开要对比的文件");
+            return;
+        }
+
+        var backups = _documentService.GetBackups(_currentFilePath);
+        if (backups.Count == 0)
+        {
+            await ShowInfoAsync("没有可对比的备份", "当前文件还没有保存过的备份。");
+            return;
+        }
+
+        var choices = backups
+            .Select((backup, index) => FormatBackupChoice(backup, index))
+            .ToArray();
+
+        var selected = await DisplayActionSheetAsync("选择要对比的备份", "取消", null, choices);
+        if (string.IsNullOrWhiteSpace(selected) || selected == "取消")
+        {
+            return;
+        }
+
+        var selectedIndex = Array.IndexOf(choices, selected);
+        if (selectedIndex < 0)
+        {
+            return;
+        }
+
+        try
+        {
+            var backup = backups[selectedIndex];
+            var backupHtml = await File.ReadAllTextAsync(backup.FullPath, Encoding.UTF8);
+            var currentHtml = await GetEditorHtmlAsync();
+
+            _currentDiffLines.Clear();
+            _currentDiffLines.AddRange(BuildDiffLines(backupHtml, currentHtml));
+            _diffBackupLabel = FormatBackupChoice(backup, selectedIndex);
+            _showFullDiff = false;
+            ShowFullDiffCheckBox.IsChecked = false;
+            DiffPanel.IsVisible = true;
+            RenderDiffLines();
+        }
+        catch (Exception ex)
+        {
+            await ShowErrorAsync("生成对比失败", ex.Message);
+        }
+    }
+
+    private void RenderDiffLines()
+    {
+        DiffLines.Clear();
+
+        foreach (var line in _currentDiffLines.Where(line => _showFullDiff || line.Kind != "same"))
+        {
+            DiffLines.Add(line);
+        }
+
+        var changedLineCount = _currentDiffLines.Count(line => line.Kind != "same");
+        var visibleMode = _showFullDiff ? "全部" : "仅差异";
+        DiffSummaryLabel.Text = string.IsNullOrWhiteSpace(_diffBackupLabel)
+            ? $"修改对比：{visibleMode}，差异 {changedLineCount} 行"
+            : $"修改对比：{_diffBackupLabel} -> 当前编辑内容；{visibleMode}，差异 {changedLineCount} 行";
+    }
+
+    private void CloseDiffPanel()
+    {
+        DiffPanel.IsVisible = false;
+        DiffLines.Clear();
+        _currentDiffLines.Clear();
+        _diffBackupLabel = null;
+        _showFullDiff = false;
+        ShowFullDiffCheckBox.IsChecked = false;
     }
 
     private async Task LoadHtmlIntoEditorAsync(string html)
@@ -699,6 +805,121 @@ public partial class MainPage : ContentPage
         return $"{megabytes:0.#} MB";
     }
 
+    private static IReadOnlyList<FileDiffLine> BuildDiffLines(string oldText, string newText)
+    {
+        var oldLines = SplitLines(oldText);
+        var newLines = SplitLines(newText);
+        var diff = new List<FileDiffLine>();
+
+        if ((long)oldLines.Length * newLines.Length > 4_000_000)
+        {
+            return BuildSimpleDiffLines(oldLines, newLines);
+        }
+
+        var lengths = new int[oldLines.Length + 1, newLines.Length + 1];
+        for (var oldIndex = oldLines.Length - 1; oldIndex >= 0; oldIndex--)
+        {
+            for (var newIndex = newLines.Length - 1; newIndex >= 0; newIndex--)
+            {
+                lengths[oldIndex, newIndex] = oldLines[oldIndex] == newLines[newIndex]
+                    ? lengths[oldIndex + 1, newIndex + 1] + 1
+                    : Math.Max(lengths[oldIndex + 1, newIndex], lengths[oldIndex, newIndex + 1]);
+            }
+        }
+
+        var i = 0;
+        var j = 0;
+        while (i < oldLines.Length || j < newLines.Length)
+        {
+            if (i < oldLines.Length && j < newLines.Length && oldLines[i] == newLines[j])
+            {
+                diff.Add(CreateDiffLine("same", " ", i + 1, j + 1, oldLines[i], newLines[j]));
+                i++;
+                j++;
+            }
+            else if (j < newLines.Length && (i == oldLines.Length || lengths[i, j + 1] >= lengths[i + 1, j]))
+            {
+                diff.Add(CreateDiffLine("added", "+", null, j + 1, "", newLines[j]));
+                j++;
+            }
+            else if (i < oldLines.Length)
+            {
+                diff.Add(CreateDiffLine("removed", "-", i + 1, null, oldLines[i], ""));
+                i++;
+            }
+        }
+
+        return diff;
+    }
+
+    private static IReadOnlyList<FileDiffLine> BuildSimpleDiffLines(string[] oldLines, string[] newLines)
+    {
+        var diff = new List<FileDiffLine>();
+        var count = Math.Max(oldLines.Length, newLines.Length);
+        for (var index = 0; index < count; index++)
+        {
+            var hasOld = index < oldLines.Length;
+            var hasNew = index < newLines.Length;
+            if (hasOld && hasNew && oldLines[index] == newLines[index])
+            {
+                diff.Add(CreateDiffLine("same", " ", index + 1, index + 1, oldLines[index], newLines[index]));
+            }
+            else
+            {
+                if (hasOld)
+                {
+                    diff.Add(CreateDiffLine("removed", "-", index + 1, null, oldLines[index], ""));
+                }
+
+                if (hasNew)
+                {
+                    diff.Add(CreateDiffLine("added", "+", null, index + 1, "", newLines[index]));
+                }
+            }
+        }
+
+        return diff;
+    }
+
+    private static FileDiffLine CreateDiffLine(
+        string kind,
+        string symbol,
+        int? oldLineNumber,
+        int? newLineNumber,
+        string oldText,
+        string newText)
+    {
+        var background = kind switch
+        {
+            "added" => Color.FromArgb("#EAF8EF"),
+            "removed" => Color.FromArgb("#FDECEC"),
+            _ => Colors.White
+        };
+        var textColor = kind switch
+        {
+            "added" => Color.FromArgb("#116329"),
+            "removed" => Color.FromArgb("#9E1C1C"),
+            _ => Color.FromArgb("#263238")
+        };
+
+        return new FileDiffLine
+        {
+            Kind = kind,
+            Symbol = symbol,
+            OldLineNumber = oldLineNumber?.ToString() ?? "",
+            NewLineNumber = newLineNumber?.ToString() ?? "",
+            OldText = oldText,
+            NewText = newText,
+            BackgroundColor = background,
+            TextColor = textColor
+        };
+    }
+
+    private static string[] SplitLines(string value)
+    {
+        return value.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
+    }
+
     private static string DecodeJavaScriptString(string? value)
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -738,6 +959,15 @@ public partial class MainPage : ContentPage
         var isContentTools = _editorMode == EditorMode.ContentTools;
         ContentToolsToolbar.IsVisible = isContentTools;
         DeleteButton.IsVisible = isContentTools;
+    }
+
+    private void UpdateSidebarChrome()
+    {
+        SidebarColumn.Width = _sidebarVisible ? new GridLength(320) : new GridLength(0);
+        SidebarSeparatorColumn.Width = _sidebarVisible ? new GridLength(1) : new GridLength(0);
+        SidebarPanel.IsVisible = _sidebarVisible;
+        SidebarSeparator.IsVisible = _sidebarVisible;
+        ToggleSidebarButton.Text = _sidebarVisible ? "隐藏左侧" : "显示左侧";
     }
 
     private void SetStatus(string message)
