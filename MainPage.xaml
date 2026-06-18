@@ -113,7 +113,7 @@
                                 Clicked="OnInitGitClicked" />
                         <Picker Grid.Column="1"
                                 x:Name="EditorModePicker"
-                                SelectedIndex="1"
+                                SelectedIndex="2"
                                 HeightRequest="34"
                                 MinimumHeightRequest="34"
                                 MinimumWidthRequest="132"

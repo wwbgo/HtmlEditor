@@ -23,7 +23,7 @@ public partial class MainPage : ContentPage
     private readonly List<FileTreeNode> _treeRoots = [];
     private bool _editorReady;
     private bool _editorResourcesReady;
-    private EditorMode _editorMode = EditorMode.ContentTools;
+    private EditorMode _editorMode = EditorMode.ContentEditable;
     private bool _sidebarVisible = true;
     private bool _showFullDiff;
     private readonly List<FileDiffLine> _currentDiffLines = [];
@@ -43,7 +43,7 @@ public partial class MainPage : ContentPage
     {
         InitializeComponent();
         BindingContext = this;
-        EditorModePicker.SelectedIndex = 1;
+        EditorModePicker.SelectedIndex = 2;
         UpdateModeChrome();
         UpdateSidebarChrome();
         EditorWebView.Source = new UrlWebViewSource { Url = "about:blank" };
