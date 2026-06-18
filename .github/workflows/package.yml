@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 env:
@@ -90,6 +90,35 @@ jobs:
           name: HtmlEditor-Setup-${{ steps.version.outputs.version }}-${{ env.RUNTIME }}
           path: artifacts/installer/*.exe
           if-no-files-found: error
+
+      - name: Publish GitHub Release asset
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $installer = Get-ChildItem -LiteralPath artifacts/installer -Filter "*.exe" | Select-Object -First 1
+          if (-not $installer) {
+            throw "Installer was not found in artifacts/installer."
+          }
+
+          $tag = "${{ github.ref_name }}"
+          $version = "${{ steps.version.outputs.version }}"
+          $repository = "${{ github.repository }}"
+          $releaseTitle = "HtmlEditor $tag"
+          $releaseNotes = "Windows installer built by GitHub Actions.`n`nVersion: $version"
+
+          gh release view $tag --repo $repository *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag `
+              --repo $repository `
+              --title $releaseTitle `
+              --notes $releaseNotes
+          }
+
+          gh release upload $tag $installer.FullName `
+            --repo $repository `
+            --clobber
 
       - name: Install ORAS
         uses: oras-project/setup-oras@v1
