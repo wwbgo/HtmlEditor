@@ -30,8 +30,18 @@ if ($Version -match '^\d+\.\d+$') {
     $Version = "$Version.0"
 }
 
+$displayVersionParts = @($Version -split '[^0-9]+' | Where-Object { $_ })
+if ($displayVersionParts.Count -eq 0) {
+    $displayVersionParts = @("1", "0", "0")
+}
+
+$majorVersion = [int]$displayVersionParts[0]
+$minorVersion = if ($displayVersionParts.Count -ge 2) { [int]$displayVersionParts[1] } else { 0 }
+$patchVersion = if ($displayVersionParts.Count -ge 3) { [int]$displayVersionParts[2] } else { 0 }
+$ApplicationDisplayVersion = "$majorVersion.$minorVersion.$patchVersion"
+
 if ([string]::IsNullOrWhiteSpace($BuildNumber)) {
-    $BuildNumber = if ($Version -match '^\d+\.\d+\.\d+\.(\d+)$') { $Matches[1] } else { "1" }
+    $BuildNumber = if ($displayVersionParts.Count -ge 4) { [string][int]$displayVersionParts[3] } else { "1" }
 }
 
 if (-not $SkipPublish) {
@@ -42,7 +52,7 @@ if (-not $SkipPublish) {
         --self-contained true `
         /p:WindowsPackageType=None `
         /p:PublishSingleFile=false `
-        /p:ApplicationDisplayVersion=$Version `
+        /p:ApplicationDisplayVersion=$ApplicationDisplayVersion `
         /p:ApplicationVersion=$BuildNumber
 }
 
